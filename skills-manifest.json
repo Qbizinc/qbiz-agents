@@ -1,0 +1,22 @@
+{
+  "version": "1",
+  "generated_at": "2026-06-03",
+  "skills": [
+    {
+      "name": "airflow-pipeline-doctor",
+      "description": "Identifies broken Airflow pipelines by scanning DAG run failures, surfacing failed task instances, and retrieving logs to explain the root cause. Requires the astro-airflow-mcp MCP server to be connected.",
+      "roles": [
+        "data-engineer",
+        "platform-engineer"
+      ],
+      "requires_mcp": [
+        "astro-airflow-mcp"
+      ],
+      "path": "skills/airflow-pipeline-doctor",
+      "models": [
+        "claude",
+        "gemini"
+      ]
+    }
+  ]
+}

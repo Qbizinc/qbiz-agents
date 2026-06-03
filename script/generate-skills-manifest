@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""Regenerates skills-manifest.json from the skills/ directory. Run before every commit."""
+
+import json
+import yaml
+import re
+from pathlib import Path
+from datetime import date
+
+ROOT = Path(__file__).parent.parent
+SKILLS_DIR = ROOT / "skills"
+OUTPUT = ROOT / "skills-manifest.json"
+
+FRONTMATTER_RE = re.compile(r"^---\n(.+?)\n---", re.DOTALL)
+
+
+def parse_frontmatter(skill_md: str) -> dict:
+    m = FRONTMATTER_RE.match(skill_md)
+    if not m:
+        return {}
+    return yaml.safe_load(m.group(1)) or {}
+
+
+def main():
+    skills = []
+    for skill_dir in sorted(SKILLS_DIR.iterdir()):
+        if not skill_dir.is_dir() or skill_dir.name == "TEMPLATE":
+            continue
+        skill_md_path = skill_dir / "SKILL.md"
+        if not skill_md_path.exists():
+            print(f"  SKIP {skill_dir.name} — no SKILL.md")
+            continue
+
+        fm = parse_frontmatter(skill_md_path.read_text())
+        models = []
+        if (skill_dir / "CLAUDE.md").exists():
+            models.append("claude")
+        if (skill_dir / "GEMINI.md").exists():
+            models.append("gemini")
+        if not models:
+            models = ["claude", "gemini"]
+
+        skills.append({
+            "name": fm.get("name", skill_dir.name),
+            "description": fm.get("description", ""),
+            "roles": fm.get("roles", []),
+            "requires_mcp": fm.get("requires_mcp", []),
+            "path": f"skills/{skill_dir.name}",
+            "models": models,
+        })
+        print(f"  OK  {skill_dir.name}")
+
+    manifest = {
+        "version": "1",
+        "generated_at": str(date.today()),
+        "skills": skills,
+    }
+    OUTPUT.write_text(json.dumps(manifest, indent=2) + "\n")
+    print(f"\nWrote {len(skills)} skill(s) to skills-manifest.json")
+
+
+if __name__ == "__main__":
+    main()

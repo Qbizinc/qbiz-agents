@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+"""Generates checksums.sha256 for all skill and MCP files. Run before every release."""
+
+import hashlib
+from pathlib import Path
+
+ROOT = Path(__file__).parent.parent
+OUTPUT = ROOT / "checksums.sha256"
+
+DIRS = ["skills", "mcp"]
+EXTENSIONS = {".md", ".yaml", ".json"}
+
+
+def sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_text().encode()).hexdigest()
+
+
+def main():
+    lines = []
+    for dir_name in DIRS:
+        for f in sorted((ROOT / dir_name).rglob("*")):
+            if f.is_file() and f.suffix in EXTENSIONS:
+                rel = f.relative_to(ROOT).as_posix()
+                lines.append(f"{sha256(f)}  {rel}")
+                print(f"  OK  {rel}")
+
+    OUTPUT.write_text("\n".join(lines) + "\n")
+    print(f"\nWrote {len(lines)} checksums to checksums.sha256")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,34 @@
+name: astro-airflow
+description: MCP server for Apache Airflow. Provides tools to inspect DAGs, DAG runs, task instances, logs, import errors, and system health.
+command: uvx
+args:
+  - astro-airflow-mcp
+  - --transport
+  - stdio
+  - --airflow-url
+  - "${AIRFLOW_URL}"
+  - --username
+  - "${AIRFLOW_USERNAME}"
+  - --password
+  - "${AIRFLOW_PASSWORD}"
+env:
+  AIRFLOW_URL: ""
+  AIRFLOW_USERNAME: ""
+  AIRFLOW_PASSWORD: ""
+tools:
+  - get_system_health
+  - list_dags
+  - get_dag
+  - explore_dag
+  - list_dag_runs
+  - get_dag_run
+  - trigger_dag
+  - diagnose_dag_run
+  - list_tasks
+  - get_task
+  - get_task_instance
+  - get_task_logs
+  - list_import_errors
+  - list_dag_warnings
+  - pause_dag
+  - unpause_dag
