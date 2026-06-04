@@ -50,7 +50,7 @@ def add_mcp(name: str):
         console.print(f"\nConfiguring [bold]{name}[/bold] MCP server:")
         for key, default in env_vars.items():
             value = click.prompt(f"  {key}", default=default or "", show_default=bool(default))
-            filled_env[key] = value
+            filled_env[key] = value.strip().lstrip("﻿")
 
     # Resolve uvx path
     uvx_path = _find_uvx()
