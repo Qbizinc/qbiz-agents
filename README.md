@@ -8,6 +8,8 @@ The central repository for all Qbiz AI agents, skills, and MCP server definition
 
 This repo is the single source of truth for reusable AI capabilities across Qbiz projects. Instead of every project reinventing the same prompts and agent workflows, teams install skills from here and get consistent, maintained behavior across all models.
 
+Skills in this repo follow the [Agent Skills open specification](https://github.com/anthropics/skills) — the standard introduced by Anthropic and adopted by 32+ tools including Claude Code, Gemini CLI, Cursor, VS Code, GitHub Copilot, and others. This means skills built here are portable across AI tools out of the box.
+
 ```
 qbiz-agents/
 ├── skills/                    # Individual skills (code-review, sql-analyst, etc.)
@@ -30,7 +32,7 @@ qbiz-agents/
 │       ├── main.py
 │       └── commands/
 ├── tools/                     # Internal build tooling for contributors (skill linter, scaffolding, CI helpers)
-├── script/                    # Simple scripts (e.g. generate-skills-manifest)
+├── script/                    # Repo maintenance scripts (manifest + checksum generation) — not skill scripts
 ├── skills-manifest.json       # Auto-generated index of all skills (do not edit)
 ├── CLAUDE.md                  # Repo-level instructions for Claude
 └── GEMINI.md                  # Repo-level instructions for Gemini
@@ -258,7 +260,7 @@ Agent definitions live in `agents/<name>/` and follow a similar structure to ski
 
 | Folder | Purpose |
 |---|---|
-| `script/` | Simple one-off scripts. Currently: `generate-skills-manifest` — reads all `SKILL.md` files and regenerates `skills-manifest.json`. Run before every commit that adds or changes a skill. |
+| `script/` | Repo maintenance scripts — `generate-skills-manifest` and `generate-checksums`. These are for keeping this repo's index and security files up to date, not for skills themselves. Scripts that belong to a specific skill live inside that skill's folder under `skills/<name>/`. |
 | `tools/` | Structured internal tooling — skill linter, scaffolding helpers, CI validators. Lives here when a script grows complex enough to need its own package or tests. |
 
 ---
