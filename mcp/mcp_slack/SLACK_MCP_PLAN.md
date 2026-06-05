@@ -35,10 +35,12 @@ findings in real time.
 This is primarily a **one-way posting** flow during the demo. The agent does not wait for human
 replies mid-investigation — the LLM drives the entire sequence autonomously.
 
-**Repository context:** This server lives in the `agents-repo` (owned by Andres) alongside the
-Airflow, AWS, and Jira MCPs. Keep the project structure flat enough that it fits naturally as a
-subpackage there, and self-contained enough to also be extracted as a standalone pip-installable
-package.
+**Repository context:** This server lives in [`qbiz-agents`](https://github.com/Qbizinc/qbiz-agents)
+at `mcp/mcp_slack/`, alongside the Airflow MCP and any future Qbiz or vendor MCPs. It is
+registered in the `qba` CLI registry so consultants can install it via `qba agent mcp add slack`.
+The package is self-contained and can also be used standalone via `uvx --from git+ssh://...` or
+a local `uv run --project` reference without pulling in the rest of the repo. See
+[Integration History](#integration-history) for the full migration notes.
 
 ### Harness Architecture Context (Qbiz methodology)
 
@@ -133,23 +135,29 @@ For two-way communication and HITL approval detection, subscribe to these **Bot 
 
 ## Phase 2 — Project Structure
 
+The package now lives inside `qbiz-agents`. The layout below reflects its current location:
+
 ```
-slack_mcp/
-├── pyproject.toml          # Package metadata + dependencies
-├── .env.example            # Template for required env vars
-├── README.md
-└── src/
-    └── slack_mcp/
-        ├── __init__.py
-        ├── server.py       # MCP server entry point + tool registration
-        ├── slack_client.py # Thin wrapper around slack_sdk
-        ├── tools/
-        │   ├── __init__.py
-        │   ├── messaging.py    # send_message, send_dm
-        │   ├── files.py        # upload_file
-        │   ├── channels.py     # list_channels, get_channel_history
-        │   └── users.py        # find_user
-        └── listener.py     # Two-way: Slack event listener / socket mode handler
+qbiz-agents/
+└── mcp/
+    └── mcp_slack/
+        ├── mcp.yaml            # qba registry definition (command, env vars, tools list)
+        ├── pyproject.toml      # Package metadata + dependencies (name: qbiz-slack-mcp)
+        ├── SETUP.md            # Slack app creation guide and credential setup
+        ├── SLACK_MCP_PLAN.md   # This file
+        └── src/
+            └── slack_mcp/
+                ├── __init__.py
+                ├── _app.py         # FastMCP singleton
+                ├── server.py       # Entry point + tool registration
+                ├── slack_client.py # Thin wrapper around slack_sdk
+                ├── listener.py     # Socket Mode event listener (Phase 10b)
+                └── tools/
+                    ├── __init__.py
+                    ├── messaging.py    # send_message, send_dm, add_reaction
+                    ├── files.py        # upload_file
+                    ├── channels.py     # list_channels, get_channel_history
+                    └── users.py        # find_user
 ```
 
 ---
@@ -160,15 +168,14 @@ slack_mcp/
 
 ```toml
 [project]
-name = "slack-mcp"
+name = "qbiz-slack-mcp"         # Renamed from slack-mcp to avoid PyPI collisions
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
     "mcp>=1.0.0",               # Anthropic MCP SDK
     "slack-sdk>=3.27.0",        # Slack official Python SDK
     "python-dotenv>=1.0.0",     # .env loading
-    "anyio>=4.0.0",             # Async runtime (required by mcp)
-    "httpx>=0.27.0",            # HTTP client for health checks
+    "aiohttp>=3.9.0",           # Async HTTP (required for Socket Mode client)
 ]
 
 [project.scripts]
@@ -361,15 +368,48 @@ async def handle(sc, req: SocketModeRequest) -> None:
 
 ## Phase 7 — MCP Client Configuration
 
-To wire the server into Claude Desktop or Claude Code, add to `claude_desktop_config.json`
-(or the equivalent MCP config file):
+### Option A — via qba CLI (recommended)
+
+If the consuming project uses the `qba` agent CLI, run:
+
+```bash
+qba agent mcp add slack
+```
+
+The CLI fetches `mcp.yaml` from the qbiz-agents registry, prompts for credentials, and writes
+the server config to `.mcp.json` automatically.
+
+### Option B — via uvx from GitHub (no local clone needed)
+
+Add to `.mcp.json` in the consuming project:
+
+```json
+{
+  "mcpServers": {
+    "slack": {
+      "command": "uvx",
+      "args": [
+        "--from", "git+ssh://git@github.com/Qbizinc/qbiz-agents.git#subdirectory=mcp/mcp_slack",
+        "slack-mcp"
+      ],
+      "env": {
+        "SLACK_BOT_TOKEN": "xoxb-...",
+        "SLACK_APP_TOKEN": "xapp-...",
+        "SLACK_SIGNING_SECRET": "..."
+      }
+    }
+  }
+}
+```
+
+### Option C — via local clone (fastest iteration during development)
 
 ```json
 {
   "mcpServers": {
     "slack": {
       "command": "uv",
-      "args": ["run", "--project", "/path/to/slack_mcp", "slack-mcp"],
+      "args": ["run", "--project", "/path/to/qbiz-agents/mcp/mcp_slack", "slack-mcp"],
       "env": {
         "SLACK_BOT_TOKEN": "xoxb-...",
         "SLACK_APP_TOKEN": "xapp-...",
@@ -464,8 +504,9 @@ for when this MCP is used in production contexts or replicated for Varvite.
 - **Scheduled messages:** `chat.scheduleMessage` API available if needed.
 - **Message formatting:** Slack Block Kit for rich messages (buttons, dropdowns) — useful for
   interactive approval flows and confirmation UX in agent pipelines (v2 priority for Varvite).
-- **Qbiz demo coordination:** Andres owns `agents-repo` — align on directory layout and how
-  this MCP is invoked from the Agentic Incident DAG before wiring Phase 4 (Integration).
+- **Qbiz demo coordination:** This MCP now lives in `qbiz-agents/mcp/mcp_slack/` — the layout
+  and integration are complete. Align with Andres on how the Agentic Incident DAG references
+  it (via `qba agent mcp add slack` or a direct `.mcp.json` entry).
 - **Data owner mapping:** The demo needs to know which Slack user owns each NovaMart pipeline.
   Consider a `PIPELINE_OWNERS` env var (JSON map of pipeline name → Slack user email/name) so
   the agent can resolve owners without hardcoded values in the DAG.
@@ -481,3 +522,33 @@ for when this MCP is used in production contexts or replicated for Varvite.
   Jira tickets, posts to Slack) — Qbiz's own framework puts it at HIGH risk tier, requiring
   HITL checkpoints + output validation + audit trail as minimum harness. `request_approval`
   fulfills the HITL requirement for any action the agent takes beyond read-only investigation.
+
+---
+
+## Integration History
+
+### 2026-06-05 — Migrated into qbiz-agents
+
+**Decision:** `qbiz-agents` was established as the central hub for all Qbiz agent-related work —
+both internally-built MCP servers (like this one) and vendor MCPs (like `astro-airflow`). This
+gives consultants a single repo to go to for all agent needs, and ensures work from one project
+is available to future projects without starting from scratch.
+
+**What was done:**
+
+- Moved all source from the standalone `Slack_MCP/` project into `qbiz-agents/mcp/mcp_slack/`
+  following the `mcp_<name>/` naming convention established by `mcp_astro_airflow`
+- Renamed the Python package from `slack-mcp` to `qbiz-slack-mcp` to avoid PyPI naming
+  collisions and make ownership clear; the CLI entry point (`slack-mcp`) is unchanged
+- Created `mcp.yaml` registering the server in the `qba` CLI — users can now run
+  `qba agent mcp add slack` to install it into any project's `.mcp.json`
+- Created `SETUP.md` documenting Slack app creation, required OAuth scopes, and all three
+  installation methods (qba CLI, uvx from GitHub, local clone)
+- Regenerated `checksums.sha256` to include the new mcp_slack files
+- Branch: `feature/slack-mcp-integration`
+
+**What did not change:** All Python source code is identical to the original `Slack_MCP/`
+implementation. The original `Slack_MCP/` directory is preserved as a reference.
+
+**Installation going forward:** New projects should use `qba agent mcp add slack`. For active
+development on this MCP itself, use the local clone path (Option C in Phase 7).
