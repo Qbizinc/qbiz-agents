@@ -5,7 +5,7 @@ roles:
   - data-engineer
   - platform-engineer
 requires_mcp:
-  - astro-airflow-mcp
+  - astro-airflow
 ---
 
 # Airflow Pipeline Doctor

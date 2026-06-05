@@ -10,7 +10,7 @@
         "platform-engineer"
       ],
       "requires_mcp": [
-        "astro-airflow-mcp"
+        "astro-airflow"
       ],
       "path": "skills/airflow-pipeline-doctor",
       "models": [
