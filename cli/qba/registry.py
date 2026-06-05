@@ -8,16 +8,11 @@ from pathlib import Path
 # e.g.: export QBA_REGISTRY=/path/to/qbiz-agents
 LOCAL_REGISTRY = os.environ.get("QBA_REGISTRY")
 
-_REF = os.environ.get("QBA_REF", "main")
+_REF = os.environ.get("QBA_REF", "master")
 _BASE = f"https://raw.githubusercontent.com/Qbizinc/qbiz-agents/{_REF}"
 REGISTRY_URL = f"{_BASE}/skills-manifest.json"
 SKILLS_BASE_URL = f"{_BASE}/skills"
 MCP_BASE_URL = f"{_BASE}/mcp"
-
-# Set QBA_REGISTRY to a local repo path to bypass GitHub during development.
-# e.g.: export QBA_REGISTRY=/path/to/qbiz-agents
-LOCAL_REGISTRY = os.environ.get("QBA_REGISTRY")
-
 
 def fetch_manifest() -> dict:
     if LOCAL_REGISTRY:
