@@ -358,7 +358,7 @@ cli/
 
 | Skill | Description | Requires MCP |
 |---|---|---|
-| `airflow-pipeline-doctor` | Identifies broken Airflow pipelines — failed DAG runs, import errors, stuck queues | `astro-airflow-mcp` |
+| `airflow-pipeline-doctor` | Identifies broken Airflow pipelines — failed DAG runs, import errors, stuck queues | `astro-airflow` |
 
 ---
 
