@@ -12,7 +12,8 @@ EXTENSIONS = {".md", ".yaml", ".json"}
 
 
 def sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_text().encode()).hexdigest()
+    content = path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
 def main():

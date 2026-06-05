@@ -60,7 +60,7 @@ def _verify(content: str, path: str, checksums: dict) -> bool:
     if not checksums or path not in checksums:
         return True
     import hashlib
-    actual = hashlib.sha256(content.encode()).hexdigest()
+    actual = hashlib.sha256(content.replace("\r\n", "\n").encode("utf-8")).hexdigest()
     return actual == checksums[path]
 
 
