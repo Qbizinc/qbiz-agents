@@ -172,6 +172,13 @@ The `description` is the most important field — it's what the model reads to d
 
 See [skills/TEMPLATE/](skills/TEMPLATE/) for a full starter template.
 
+After adding or editing a skill, regenerate the index and checksums:
+
+```bash
+python script/generate-skills-manifest
+python script/generate-checksums
+```
+
 ---
 
 ## Building your own MCP server (FastMCP / stdio)
@@ -235,6 +242,12 @@ tools:
 qba agent mcp add my-server
 ```
 That's it. `uvx` downloads and runs the package — no manual install needed.
+
+After adding or editing an MCP definition, regenerate the checksums:
+
+```bash
+python script/generate-checksums
+```
 
 ---
 
