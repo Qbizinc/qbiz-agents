@@ -19,3 +19,5 @@ tools:
   - list_channels
   - get_channel_history
   - find_user
+  - request_approval
+  - wait_for_reply
