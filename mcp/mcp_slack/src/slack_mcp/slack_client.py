@@ -1,6 +1,15 @@
 import os
+import re
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
+
+# Slack user IDs look like U0123ABCD / W0123ABCD (enterprise). find_user returns
+# these, and agents commonly pass them straight back into send_dm.
+_USER_ID_RE = re.compile(r"[UW][A-Z0-9]{8,}$")
+
+# Cache channel name -> ID. conversations.list is a low-rate-limit method, and an
+# agent posting many messages to one channel would otherwise call it every time.
+_channel_cache: dict[str, str] = {}
 
 _client: WebClient | None = None
 
@@ -22,6 +31,8 @@ def resolve_channel(name_or_id: str) -> str:
     if not name_or_id.startswith("#") and name_or_id.upper() == name_or_id or name_or_id.startswith("C"):
         return name_or_id
     name = name_or_id.lstrip("#")
+    if name in _channel_cache:
+        return _channel_cache[name]
     client = get_client()
     cursor = None
     while True:
@@ -31,6 +42,7 @@ def resolve_channel(name_or_id: str) -> str:
         response = client.conversations_list(**kwargs)
         for ch in response["channels"]:
             if ch["name"] == name:
+                _channel_cache[name] = ch["id"]
                 return ch["id"]
         cursor = response.get("response_metadata", {}).get("next_cursor")
         if not cursor:
@@ -39,7 +51,11 @@ def resolve_channel(name_or_id: str) -> str:
 
 
 def resolve_user_id(query: str) -> str:
-    """Resolve a display name, real name, or email address to a Slack user ID."""
+    """Resolve a display name, real name, email, or user ID to a Slack user ID."""
+    query = query.strip()
+    # Already a Slack user ID (e.g. as returned by find_user) — use it directly.
+    if _USER_ID_RE.fullmatch(query):
+        return query
     client = get_client()
     # Try email lookup first — fastest path
     if "@" in query:

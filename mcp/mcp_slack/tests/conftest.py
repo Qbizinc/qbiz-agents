@@ -31,3 +31,14 @@ requires_socket = pytest.mark.skipif(
 @pytest.fixture
 def channel() -> str:
     return TEST_CHANNEL
+
+
+@pytest.fixture(autouse=True)
+def _clear_channel_cache():
+    """The channel name->ID cache is module-global; unit tests resolve against a
+    fake client, so clear it around every test to prevent cross-test leakage."""
+    from slack_mcp import slack_client
+
+    slack_client._channel_cache.clear()
+    yield
+    slack_client._channel_cache.clear()
