@@ -9,6 +9,7 @@ import slack_mcp.tools.messaging  # noqa: F401, E402
 import slack_mcp.tools.files      # noqa: F401, E402
 import slack_mcp.tools.channels   # noqa: F401, E402
 import slack_mcp.tools.users      # noqa: F401, E402
+import slack_mcp.tools.hitl       # noqa: F401, E402  # request_approval, wait_for_reply (Phase 10b)
 
 
 def main() -> None:
