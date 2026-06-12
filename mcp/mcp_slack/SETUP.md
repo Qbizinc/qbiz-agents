@@ -7,7 +7,12 @@
 
 ---
 
-## Step 1 — Create the Slack App
+## Step 1 — Create or Reuse the Slack App
+
+**One app per workspace** — if your team already has a Slack app installed in this workspace,
+skip to Step 4 and use its existing tokens. You do not need a separate app per user or project.
+
+To create a new app:
 
 1. Go to [https://api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From scratch**
 2. Give it a name (e.g. `qbiz-agent-bot`) and select your target workspace
@@ -114,6 +119,12 @@ Add this block to your `.mcp.json` manually, pointing at your local qbiz-agents 
 ```
 
 Or install directly from the repo via uvx:
+
+```bash
+uvx --from git+https://github.com/Qbizinc/qbiz-agents.git#subdirectory=mcp/mcp_slack slack-mcp
+```
+
+If you have GitHub SSH keys configured, you can use SSH instead:
 
 ```bash
 uvx --from git+ssh://git@github.com/Qbizinc/qbiz-agents.git#subdirectory=mcp/mcp_slack slack-mcp

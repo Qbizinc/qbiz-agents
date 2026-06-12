@@ -3,7 +3,7 @@ description: Slack integration for agents. Post messages, send DMs, upload files
 command: uvx
 args:
   - --from
-  - git+ssh://git@github.com/Qbizinc/qbiz-agents.git#subdirectory=mcp/mcp_slack
+  - git+https://github.com/Qbizinc/qbiz-agents.git#subdirectory=mcp/mcp_slack  # use git+ssh://git@github.com/... if you have SSH keys configured
   - slack-mcp
 env:
   SLACK_BOT_TOKEN: ""
