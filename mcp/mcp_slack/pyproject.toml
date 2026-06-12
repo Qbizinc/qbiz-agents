@@ -1,0 +1,33 @@
+[project]
+name = "qbiz-slack-mcp"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.0.0",
+    "slack-sdk>=3.27.0",
+    "python-dotenv>=1.0.0",
+    "aiohttp>=3.9.0",
+]
+
+[project.scripts]
+slack-mcp = "slack_mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/slack_mcp"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = [
+    "live: hits the real Slack workspace; needs SLACK_* creds and the bot in the channel",
+    "hitl: additionally needs the 'reaction_added' bot event subscribed in the Slack app",
+]

@@ -31,7 +31,7 @@ def main():
             print(f"  SKIP {skill_dir.name} — no SKILL.md")
             continue
 
-        fm = parse_frontmatter(skill_md_path.read_text())
+        fm = parse_frontmatter(skill_md_path.read_text(encoding="utf-8"))
         models = []
         if (skill_dir / "CLAUDE.md").exists():
             models.append("claude")
@@ -55,7 +55,7 @@ def main():
         "generated_at": str(date.today()),
         "skills": skills,
     }
-    OUTPUT.write_text(json.dumps(manifest, indent=2) + "\n")
+    OUTPUT.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     print(f"\nWrote {len(skills)} skill(s) to skills-manifest.json")
 
 
