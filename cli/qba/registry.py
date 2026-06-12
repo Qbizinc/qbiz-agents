@@ -74,12 +74,12 @@ def fetch_skill_files(skill_name: str, models: list) -> dict:
         for filename in ["SKILL.md", "SETUP.md", "OWNERS.yaml"]:
             f = skill_dir / filename
             if f.exists():
-                files[filename] = f.read_text()
+                files[filename] = f.read_text(encoding="utf-8")
         for model in models:
             sidecar = "CLAUDE.md" if model == "claude" else "GEMINI.md"
             f = skill_dir / sidecar
             if f.exists():
-                files[sidecar] = f.read_text()
+                files[sidecar] = f.read_text(encoding="utf-8")
         return files
 
     for filename in ["SKILL.md", "SETUP.md", "OWNERS.yaml"]:

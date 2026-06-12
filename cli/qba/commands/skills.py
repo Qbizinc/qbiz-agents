@@ -100,7 +100,7 @@ def _install_skill(name: str, manifest: dict, models: list):
             continue
         dest.mkdir(parents=True, exist_ok=True)
         for filename, content in files.items():
-            (dest / filename).write_text(content)
+            (dest / filename).write_text(content, encoding="utf-8")
         console.print(f"[green]Installed:[/green] [bold]{name}[/bold] → {dest}/")
 
     if skill_entry.get("requires_mcp"):

@@ -27,8 +27,9 @@ def get_client() -> WebClient:
 def resolve_channel(name_or_id: str) -> str:
     """Resolve a channel name (with or without #) to a channel ID."""
     name_or_id = name_or_id.strip()
-    # Looks like an ID already (Cxxxxxxxxx)
-    if not name_or_id.startswith("#") and name_or_id.upper() == name_or_id or name_or_id.startswith("C"):
+    # Looks like a channel ID already (C followed by uppercase letters/digits, e.g. C01234ABCDE)
+    import re
+    if re.fullmatch(r"C[A-Z0-9]{6,}", name_or_id):
         return name_or_id
     name = name_or_id.lstrip("#")
     if name in _channel_cache:
