@@ -62,9 +62,10 @@ These are settled. Don't re-litigate them without a concrete new reason.
 ### Decide next
 
 The full list of open decisions, what each blocks, and when it's needed lives in
-**[Required Decisions](#required-decisions)** below the Implementation Order. The two that pace the
-demo and need to go to the team first are **D1 (agent-identity injection)** and **D3 (LLM provider
-+ evaluator model)** — start there.
+**[Required Decisions](#required-decisions)** below the Implementation Order. The two team
+decisions on the critical path to *client* engagement (the hard gate — the Airflow demo is only a
+soft target) are **D1 (agent-identity injection)** and **D3 (LLM provider + evaluator model)** —
+start there.
 
 ---
 
@@ -606,8 +607,8 @@ These need no pending decision and no per-agent input — build now, in any orde
 ### Phase 6 — Gates
 - [ ] **Gate 1** (automated): written per-component as each lands (access-control denial tests,
       governor-threshold tests, audit-coverage tests, schema/signature consistency).
-- [ ] **Gate 2** (evaluator): run against real Agentic Incident DAG scenarios before the demo.
-      Depends on Phase 5, therefore on `[D3]`.
+- [ ] **Gate 2** (evaluator): run against real Agentic Incident DAG scenarios. Depends on Phase 5,
+      therefore on `[D3]`. Soft target for the Airflow demo; **required before any client engagement.**
 - [ ] **Gate 3** (human red team): post-demo unless the demo is client-facing.
 
 ---
@@ -615,22 +616,31 @@ These need no pending decision and no per-agent input — build now, in any orde
 ## Required Decisions
 
 These gate the phases above. The first two are **team decisions** (external dependency); the rest
-are **ours to make** at build time. "Needed by" is expressed against the build phase, since we have
-no hard calendar yet except the demo — **pin the demo date and back-date `[D1]` and `[D3]` from it**
-(both are in-scope for the HIGH-tier Incident DAG demo).
+are **ours to make** at build time.
+
+**Two deadline classes — keep them distinct:**
+- **Soft target — the Airflow demo.** Full LLM-interaction capability (the evaluator and the demo
+  driver, i.e. `[D3]`) is a *nice-to-have* for the Airflow Summit demo. If it isn't working by
+  then, that's fine — the demo can show the harness mechanics without the full live-LLM loop.
+- **Hard requirement — any client engagement using the MCP servers.** Before *any* client work on
+  the MCP servers, the full-functionality decisions **must** be closed — `[D3]` (LLM provider +
+  evaluator model) above all, plus `[D1]` since a client-facing agent is HIGH+ and needs the
+  access-control layer. There is no "ship to a client without these" path.
 
 | ID | Decision | Blocks | Needed by | Type / status |
 |---|---|---|---|---|
-| **D1** | **Agent-identity injection** — env var (set by launcher) vs. signed token at harness init. Never read from LLM output. | Component 3 (Phase 3) — entire access-control layer | Before Phase 3. **Hard deadline: the demo** (Incident DAG is HIGH, needs Component 3). | Team. *Pending review.* |
+| **D1** | **Agent-identity injection** — env var (set by launcher) vs. signed token at harness init. Never read from LLM output. | Component 3 (Phase 3) — entire access-control layer | Before Phase 3. **Hard requirement before any client engagement** (client-facing agents are HIGH+ and need Component 3). | Team. *Pending review.* |
 | **D2** | **Shared vs. per-agent memory backend** — does any agent share memory with another? | Component 4 (Phase 4) — whether it's built at all | Before Phase 4. Low urgency; **default to per-agent (skip Component 4)** until a shared backend is actually introduced. | Team. *Open; safe default exists.* |
-| **D3** | **LLM provider + evaluator model** — Qbiz may lack an Anthropic key; Gemini possible. Evaluator must be a *different* model than the primary, so this picks both. Also gates the demo driver `incident_demo.py`. | Component 7 (Phase 5) + Gate 2 + demo driver | Before Phase 5 / Gate 2. **Hard deadline: the demo.** | Team. *Pending — see project memory `llm_provider_open_question`.* |
+| **D3** | **LLM provider + evaluator model** — Qbiz may lack an Anthropic key; Gemini possible. Evaluator must be a *different* model than the primary, so this picks both. Also gates the demo driver `incident_demo.py`. | Component 7 (Phase 5) + Gate 2 + demo driver | **Soft target: the Airflow demo** (fine if not ready). **Hard requirement before any client engagement** using the MCP servers. | Team. *Pending — see project memory `llm_provider_open_question`.* |
 | **D4** | **Audit storage backend (HIGH+)** — local append-only JSON for the demo vs. BigQuery / S3-object-lock for production. | Production-grade audit only — *not* the demo | Before any HIGH+ production deploy. Demo uses local JSON. | Ours. *Low urgency; default local JSON now.* |
 | **D5** | **Injection-screening dependency** — regex-only vs. Guardrails AI vs. Rebuff. | Full Component 1 (Phase 2) | At Phase 2. Ship regex-only first; add a library later if needed. | Ours. *Decide at build time.* |
 | **D6** | **HITL timeout policy (per agent)** — fail-closed / fail-open / escalate. | Per-agent config, **not** the Component 8 mechanism | At each agent's config time. **Default fail-closed for HIGH+.** | Ours. *Per-agent, default exists.* |
 
-**The two that actually pace us are D1 and D3** — both are team decisions and both are in the
-demo's critical path. D2 and D4–D6 either have a safe default or are made at build time, so they
-don't block progress. Get D1 and D3 in front of the team before Phase 3 starts.
+**The two that actually pace us are D1 and D3** — both are team decisions and both are on the
+critical path to *client* work (not the demo, which can proceed without full LLM capability). D2
+and D4–D6 either have a safe default or are made at build time, so they don't block progress. Get
+D1 and D3 in front of the team well ahead of the first client engagement — and before Phase 3
+starts, since D1 gates it.
 
 ---
 
