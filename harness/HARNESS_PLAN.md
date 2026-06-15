@@ -8,8 +8,8 @@
 
 ## Relationship to the Executive Vision
 
-Jeff's deck (`references/…Enterprise AI Agent Positioning…pptx`, slides 22–30) is the **Executive
-Vision**. This document is the **Engineering Reality**. The reconciliation rule:
+Jeff's deck (slides 22–30) is the **Executive Vision**. This document is the **Engineering
+Reality**. The reconciliation rule:
 
 - Anything in the Vision that is missing from our code and is reasonable and doable → **we build it.**
 - We add engineering detail the Vision doesn't touch (Jeff isn't a data engineer; he won't think
@@ -19,6 +19,12 @@ Vision**. This document is the **Engineering Reality**. The reconciliation rule:
   and not worth chasing.
 
 This section is the standing instruction for how to treat future deck revisions, not a one-time merge.
+
+**Source of truth for the deck:**
+<https://docs.google.com/presentation/d/178LWTphdfSCooNB4nF5uSJOovXlnwTmy> — the live deck in the
+Qbiz Google Drive (Qbiz-only; not accessible to non-Qbiz folks). A local copy lives at
+`references/` (gitignored) purely so tooling without Drive access can read it; the Google Slides
+link is canonical, so check it for the current version before treating the local copy as current.
 
 ---
 
