@@ -7,6 +7,8 @@ This package depends on nothing in `agents/` or `mcp/`. The dependency direction
 agents import `qbiz_harness`; the harness imports nothing back.
 """
 
+from qbiz_harness.audit import AuditEvent, AuditLog
+from qbiz_harness.cost_governor import CostGovernor
 from qbiz_harness.exceptions import (
     BudgetExceededError,
     HarnessError,
@@ -16,10 +18,12 @@ from qbiz_harness.exceptions import (
     PermissionDeniedError,
     RateLimitError,
 )
+from qbiz_harness.orchestration import LoopGuard, with_retry
 
 __version__ = "0.1.0"
 
 __all__ = [
+    # Exceptions
     "HarnessError",
     "InputRejectedError",
     "OutputRejectedError",
@@ -27,5 +31,13 @@ __all__ = [
     "BudgetExceededError",
     "LoopLimitError",
     "PermissionDeniedError",
+    # Component 5 — Cost & Compute Governors
+    "CostGovernor",
+    # Component 6 — Orchestration Controls
+    "LoopGuard",
+    "with_retry",
+    # Cross-cutting — Audit Log
+    "AuditLog",
+    "AuditEvent",
     "__version__",
 ]

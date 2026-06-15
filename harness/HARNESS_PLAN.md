@@ -572,13 +572,16 @@ referenced as `[D#]`. Gate 1 tests are written *with* each component, not deferr
 
 ### Phase 1 — Foundational, agent-agnostic components (no blockers)
 These need no pending decision and no per-agent input — build now, in any order.
-- [ ] **Component 5 — Cost & Compute Governors** (`cost_governor.py`): token/spend caps,
-      action-count limits, kill switch, redundancy detection. Fully specified.
-- [ ] **Component 6 — Orchestration Controls** (`orchestration.py`): retry/backoff, loop guard,
+- [x] **Component 5 — Cost & Compute Governors** (`cost_governor.py`): token/spend caps,
+      action-count limits, kill switch, redundancy detection. Fully specified. *Done — Gate 1
+      threshold tests in `tests/test_cost_governor.py`.*
+- [x] **Component 6 — Orchestration Controls** (`orchestration.py`): retry/backoff, loop guard,
       fallback paths. Engineering detail to settle in-code: per-tool timeouts (not a blocker).
-- [ ] **Cross-cutting Audit Log** (`audit.py`): structured append-only event writer. Everything
+      *Done — per-call timeout is a call-site arg; tests in `tests/test_orchestration.py`.*
+- [x] **Cross-cutting Audit Log** (`audit.py`): structured append-only event writer. Everything
       below logs through it, so build it here. Demo can use local append-only JSON; production
-      storage backend is `[D4]` and not needed yet.
+      storage backend is `[D4]` and not needed yet. *Done — local JSONL; tests in
+      `tests/test_audit.py`. Components stay pure; the call site logs through it.*
 - [ ] **Component 8 — Human Checkpoints** (`hitl.py`): reuses the Slack MCP (`mcp/mcp_slack/`)
       `send_message` / `request_approval`. *Prereq:* none for the mechanism. Per-agent timeout
       *policy* is `[D6]` — config-time, does not block the code.

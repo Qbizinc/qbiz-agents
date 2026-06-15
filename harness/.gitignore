@@ -1,0 +1,8 @@
+# Demo artifact — regenerated on every run of demo/incident_runaway.py
+demo/audit_trail.jsonl
+
+# Environments / caches
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
