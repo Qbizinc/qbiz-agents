@@ -59,13 +59,12 @@ These are settled. Don't re-litigate them without a concrete new reason.
    load-bearing. They are recorded under *Deferred Concerns* below and addressed when a concrete
    use case forces them — not pre-built.
 
-### Decide next (blocks Component 3)
+### Decide next
 
-**Agent identity injection mechanism.** Component 3 (tool access controls) cannot be built until
-we decide how `agent_id` is established at process startup. Candidates: an environment variable
-set by the launcher, or a signed token verified at harness init. Identity must **never** be read
-from LLM output (it would be spoofable via prompt injection). This is the first open decision to
-close before access-control code is written.
+The full list of open decisions, what each blocks, and when it's needed lives in
+**[Required Decisions](#required-decisions)** below the Implementation Order. The two that pace the
+demo and need to go to the team first are **D1 (agent-identity injection)** and **D3 (LLM provider
++ evaluator model)** — start there.
 
 ---
 
@@ -561,18 +560,77 @@ Reminder: **agents import `qbiz_harness`; the harness imports nothing from `agen
 
 ## Implementation Order
 
-1. [ ] Scaffold `harness/` package — `pyproject.toml`, `src/qbiz_harness/`, `tests/`
-2. [ ] Build Components 5, 6, 8 first — cost governors, orchestration controls, HITL
-       (most universally needed, least agent-specific; HITL reuses the Slack MCP)
-3. [ ] Add the cross-cutting audit log (`audit.py`) alongside — everything else logs through it
-4. [ ] Add Components 1, 2 — input wrapper and output validator
-       (require PII type definitions and tool allowlists per agent)
-5. [ ] **Close the agent-identity decision**, then add Component 3 — tool access controls
-6. [ ] Add Component 4 — memory scoping (only if agents share a memory backend)
-7. [ ] Add Component 7 — evaluator agent (last; rubric quality needs real agent outputs)
-8. [ ] Implement Gate 1 automated tests for each component as it is built
-9. [ ] Run Gate 2 (evaluator) against the Agentic Incident DAG scenarios before demo
-10. [ ] Gate 3 (red team) is post-demo unless the demo is used in a client-facing context
+Phases are ordered by what unblocks what. Each phase lists its **prereqs** (what must exist first)
+and any **blocker** (a decision in *Required Decisions* below that gates it). Decisions are
+referenced as `[D#]`. Gate 1 tests are written *with* each component, not deferred to the end.
+
+### Phase 0 — Scaffold ✅ DONE (PR #2)
+- [x] `harness/` package — `pyproject.toml`, `src/qbiz_harness/`, `tests/`
+- [x] `qbiz_harness.exceptions` — the `HarnessError` hierarchy every component raises through
+- [x] Smoke tests (seed of Gate 1) + README + `HARNESS_PLAN.md`
+
+### Phase 1 — Foundational, agent-agnostic components (no blockers)
+These need no pending decision and no per-agent input — build now, in any order.
+- [ ] **Component 5 — Cost & Compute Governors** (`cost_governor.py`): token/spend caps,
+      action-count limits, kill switch, redundancy detection. Fully specified.
+- [ ] **Component 6 — Orchestration Controls** (`orchestration.py`): retry/backoff, loop guard,
+      fallback paths. Engineering detail to settle in-code: per-tool timeouts (not a blocker).
+- [ ] **Cross-cutting Audit Log** (`audit.py`): structured append-only event writer. Everything
+      below logs through it, so build it here. Demo can use local append-only JSON; production
+      storage backend is `[D4]` and not needed yet.
+- [ ] **Component 8 — Human Checkpoints** (`hitl.py`): reuses the Slack MCP (`mcp/mcp_slack/`)
+      `send_message` / `request_approval`. *Prereq:* none for the mechanism. Per-agent timeout
+      *policy* is `[D6]` — config-time, does not block the code.
+
+### Phase 2 — I/O screening components
+- [ ] **Component 1 — Input Wrapper** (`input_wrapper.py`): PII strip, injection screen, rate
+      limit, safety inject. *Prereqs:* per-agent PII type definitions + injection-screening
+      dependency choice `[D5]`. Regex-only screening can ship first; Guardrails/Rebuff added later.
+- [ ] **Component 2 — Output Validator** (`output_validator.py`): format check, hallucinated-tool
+      block, out-of-scope flag. *Prereq:* the per-agent tool allowlist (shared with Component 3).
+
+### Phase 3 — Tool access controls — **BLOCKED on `[D1]`**
+- [ ] **Component 3 — Tool-Level Access Controls** (`access_controls.py`). Cannot start until the
+      agent-identity injection mechanism `[D1]` is decided — identity is the foundation the whole
+      permission map keys off. Shares the per-agent tool allowlist with Component 2.
+
+### Phase 4 — Memory scoping — **CONDITIONAL on `[D2]`**
+- [ ] **Component 4 — Memory Scoping** (`memory.py`). Only built **if** agents share a memory
+      backend `[D2]`. If memory is per-agent, this phase is skipped entirely.
+
+### Phase 5 — Evaluator — **BLOCKED on `[D3]`, build last**
+- [ ] **Component 7 — Evaluator Agent**: a *different* model than the primary reviews output.
+      Blocked on the provider/evaluator-model decision `[D3]`, and deliberately last because rubric
+      quality depends on seeing real agent outputs to know what to evaluate against.
+
+### Phase 6 — Gates
+- [ ] **Gate 1** (automated): written per-component as each lands (access-control denial tests,
+      governor-threshold tests, audit-coverage tests, schema/signature consistency).
+- [ ] **Gate 2** (evaluator): run against real Agentic Incident DAG scenarios before the demo.
+      Depends on Phase 5, therefore on `[D3]`.
+- [ ] **Gate 3** (human red team): post-demo unless the demo is client-facing.
+
+---
+
+## Required Decisions
+
+These gate the phases above. The first two are **team decisions** (external dependency); the rest
+are **ours to make** at build time. "Needed by" is expressed against the build phase, since we have
+no hard calendar yet except the demo — **pin the demo date and back-date `[D1]` and `[D3]` from it**
+(both are in-scope for the HIGH-tier Incident DAG demo).
+
+| ID | Decision | Blocks | Needed by | Type / status |
+|---|---|---|---|---|
+| **D1** | **Agent-identity injection** — env var (set by launcher) vs. signed token at harness init. Never read from LLM output. | Component 3 (Phase 3) — entire access-control layer | Before Phase 3. **Hard deadline: the demo** (Incident DAG is HIGH, needs Component 3). | Team. *Pending review.* |
+| **D2** | **Shared vs. per-agent memory backend** — does any agent share memory with another? | Component 4 (Phase 4) — whether it's built at all | Before Phase 4. Low urgency; **default to per-agent (skip Component 4)** until a shared backend is actually introduced. | Team. *Open; safe default exists.* |
+| **D3** | **LLM provider + evaluator model** — Qbiz may lack an Anthropic key; Gemini possible. Evaluator must be a *different* model than the primary, so this picks both. Also gates the demo driver `incident_demo.py`. | Component 7 (Phase 5) + Gate 2 + demo driver | Before Phase 5 / Gate 2. **Hard deadline: the demo.** | Team. *Pending — see project memory `llm_provider_open_question`.* |
+| **D4** | **Audit storage backend (HIGH+)** — local append-only JSON for the demo vs. BigQuery / S3-object-lock for production. | Production-grade audit only — *not* the demo | Before any HIGH+ production deploy. Demo uses local JSON. | Ours. *Low urgency; default local JSON now.* |
+| **D5** | **Injection-screening dependency** — regex-only vs. Guardrails AI vs. Rebuff. | Full Component 1 (Phase 2) | At Phase 2. Ship regex-only first; add a library later if needed. | Ours. *Decide at build time.* |
+| **D6** | **HITL timeout policy (per agent)** — fail-closed / fail-open / escalate. | Per-agent config, **not** the Component 8 mechanism | At each agent's config time. **Default fail-closed for HIGH+.** | Ours. *Per-agent, default exists.* |
+
+**The two that actually pace us are D1 and D3** — both are team decisions and both are in the
+demo's critical path. D2 and D4–D6 either have a safe default or are made at build time, so they
+don't block progress. Get D1 and D3 in front of the team before Phase 3 starts.
 
 ---
 
