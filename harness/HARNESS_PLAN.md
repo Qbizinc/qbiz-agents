@@ -6,6 +6,22 @@
 
 ---
 
+## Relationship to the Executive Vision
+
+Jeff's deck (`references/…Enterprise AI Agent Positioning…pptx`, slides 22–30) is the **Executive
+Vision**. This document is the **Engineering Reality**. The reconciliation rule:
+
+- Anything in the Vision that is missing from our code and is reasonable and doable → **we build it.**
+- We add engineering detail the Vision doesn't touch (Jeff isn't a data engineer; he won't think
+  of every technical detail, and that's expected) → **fine, as long as it doesn't contradict a
+  *core* aspect of the Vision.**
+- Small misalignments of judgment (e.g. cost governors at MEDIUM vs HIGH tier) are **ours to call**
+  and not worth chasing.
+
+This section is the standing instruction for how to treat future deck revisions, not a one-time merge.
+
+---
+
 ## Decisions Locked
 
 These are settled. Don't re-litigate them without a concrete new reason.
@@ -59,6 +75,22 @@ The distinction matters because:
 
 > "Instructions are a request. The harness is enforcement."
 
+### Probabilistic reasoning, deterministic consequences
+
+LLM reasoning is inherently probabilistic — ask the same question twice and you may get different
+answers, and that cannot be eliminated. The harness does not try to make the *reasoning*
+deterministic. It makes the *consequences* deterministic: the action space is fixed and the blast
+radius is bounded regardless of what the model reasons. That guarantee comes from enforcing, in
+code:
+
+- **Hard action limits** — maximum records touched, spend triggered, messages sent (Component 5)
+- **Allowlists** — the agent can only reach explicitly permitted systems (Component 3)
+- **Memory governance** — verified prior answers are retrieved, not re-derived with potential drift (Component 4)
+- **HITL checkpoints** — a human clears irreversible actions before execution (Component 8)
+- **Full audit trail** — every action logged, so forensic reconstruction is always possible (Audit Log)
+
+The blast radius is deterministic even when the reasoning isn't.
+
 ---
 
 ## The Three Enforcement Layers
@@ -73,6 +105,29 @@ Each layer catches what the one before it misses.
 
 All three layers should be present in any HIGH or VERY HIGH risk agent. LOW and MEDIUM risk
 agents may omit the evaluator agent layer but should always have at minimum Layer 1 and Layer 3.
+
+Layer 2 (the evaluator) is not only a semantic quality check on output. It also runs two
+harness-aware checks that the mechanical layer can't: **harness gap detection** (does this agent
+have all the controls appropriate to its scope, or is one missing?) and **behavioral drift flags**
+(is the agent's output pattern diverging from its established baseline?). Both feed Component 7.
+
+---
+
+## What the Harness Protects Against — and What It Doesn't
+
+Honest scoping. The harness is strong against some threats and only a backstop against others; say
+so plainly rather than overselling. This framing is load-bearing for client conversations.
+
+| Threat | Protection level | How / why |
+|---|---|---|
+| **Adversarial inputs** (prompt injection, jailbreaks, poisoned data sources) | **Strong** | Input wrapper + tool access controls enforce hard boundaries the model cannot reason around. |
+| **Hallucination** | **Meaningful containment** | Output validator catches hallucinated tool calls and references to nonexistent data; evaluator catches semantically wrong output. The root cause lives in the model — the harness bounds the blast radius, it does not cure it. |
+| **Bias & drift** | **Backstop, not primary fix** | Evaluator can be tuned to flag biased/drifting output and human review catches the rest, but the primary fix is model selection and instruction quality. The harness is the safety net, not the solution. |
+| **Runaway behavior & cost** | **Strong** | Rate limits, spend caps, action limits, and kill switches stop an agent spiraling or racking up compute; orchestration controls prevent deadlock and infinite loops. |
+
+The takeaway for positioning: higher risk does not mean "no" — it means the architecture has to
+earn the trust. What the harness *cannot* fix (model-rooted bias, fundamental hallucination
+tendency) is addressed upstream in model and instruction choice, not pretended away.
 
 ---
 
@@ -197,20 +252,40 @@ shared backend appears:
 
 ### Component 5 — Cost & Compute Governors
 **Type:** Custom Python — `src/qbiz_harness/cost_governor.py`
-**Size:** ~50 lines
+**Size:** ~75 lines
 
-Hard spend caps and token limits enforced in code. These fire *before* an API call is made
-if possible (token estimation) and *after* if not (spend tracking).
+Hard limits enforced in code, across two dimensions:
+
+- **Cost limits** — token budget and USD spend. Fire *before* an API call (token estimation)
+  where possible, *after* otherwise (spend tracking).
+- **Action limits** — counts of consequential operations: records touched, messages sent, tool
+  calls made. The Vision lists these explicitly ("maximum records touched, spend triggered,
+  messages sent — in code"), and they are how the *blast radius* — not just the bill — is bounded.
+  A spend cap stops runaway cost; an action cap stops a cheap-but-destructive loop (e.g. an agent
+  that sends 500 Slack messages well under the token budget).
+
+The governor also carries a **kill switch** (a hard global stop, independent of any single limit)
+and supports **redundancy detection** — refusing work it has already done this run.
 
 ```python
 class CostGovernor:
-    def __init__(self, token_limit: int, spend_limit_usd: float):
+    def __init__(
+        self,
+        token_limit: int,
+        spend_limit_usd: float,
+        action_limits: dict[str, int] | None = None,  # e.g. {"messages_sent": 20, "records_touched": 1000}
+    ):
         self.tokens_used = 0
         self.spend_usd = 0.0
         self.token_limit = token_limit
         self.spend_limit = spend_limit_usd
+        self.action_limits = action_limits or {}
+        self.action_counts: dict[str, int] = {}
+        self._killed = False
 
     def pre_call(self, estimated_tokens: int) -> None:
+        if self._killed:
+            raise BudgetExceededError("Kill switch engaged")
         if self.tokens_used + estimated_tokens > self.token_limit:
             raise BudgetExceededError("Token limit reached")
 
@@ -219,6 +294,19 @@ class CostGovernor:
         self.spend_usd += cost_usd
         if self.spend_usd > self.spend_limit:
             raise BudgetExceededError(f"Spend limit ${self.spend_limit} exceeded")
+
+    def record_action(self, kind: str, count: int = 1) -> None:
+        """Call before a consequential action (send, write, touch). Fires before the action runs."""
+        if self._killed:
+            raise BudgetExceededError("Kill switch engaged")
+        projected = self.action_counts.get(kind, 0) + count
+        limit = self.action_limits.get(kind)
+        if limit is not None and projected > limit:
+            raise BudgetExceededError(f"Action limit for {kind!r} reached ({limit})")
+        self.action_counts[kind] = projected
+
+    def kill(self) -> None:
+        self._killed = True
 ```
 
 The cost optimization waterfall (apply before any LLM call):
@@ -240,7 +328,9 @@ API call per run).
 **Type:** Custom Python — `src/qbiz_harness/orchestration.py`
 **Size:** ~100 lines
 
-Prevents runaway behavior: infinite loops, deadlock, unbounded retry chains.
+Prevents runaway behavior: infinite loops, deadlock, unbounded retry chains. Also owns
+**fallback paths** — when a step exhausts its retries, the agent routes to a defined fallback
+(degraded-mode answer, alternate tool, or escalate-to-human) rather than failing hard or spinning.
 
 ```python
 import asyncio
@@ -292,7 +382,8 @@ same-model self-evaluation reliably gives inflated scores.
 - Are any tool calls referenced in the output real and in scope for this agent?
 - Does the recommended action fall within the agent's permitted scope?
 - Is there a simpler explanation the agent may have overlooked?
-- Are there harness controls that should exist given the agent's scope but appear absent?
+- Are there harness controls that should exist given the agent's scope but appear absent? (**harness gap detection**)
+- Does this output diverge from the agent's established behavioral baseline? (**behavioral drift flag**)
 
 **The evaluator has its own blast radius.** It can hallucinate too. If evaluator confidence is
 below a threshold, escalate to a HITL checkpoint rather than treating its output as ground truth.
@@ -348,8 +439,11 @@ action matched the prompt).
 ### Component (cross-cutting) — Audit Log
 **Type:** Custom Python — `src/qbiz_harness/audit.py`
 
-Not one of the original eight but referenced throughout. The audit log is a **first-class data
-product, not a log file.** For any HIGH+ agent:
+Not one of the Vision's eight, but referenced throughout it (it appears in the risk table as
+"audit trail / audit logging" rather than as a numbered component). We treat it as **cross-cutting
+infrastructure every other component logs through**, not a ninth component — an engineering
+refinement that doesn't change the Vision's count. The audit log is a **first-class data product,
+not a log file.** For any HIGH+ agent:
 - Append-only storage (CloudWatch, BigQuery, S3 with object lock)
 - Structured events with a consistent schema: `{agent_id, action, inputs, outputs, ts, user, decision}`
 - Queryable for forensic reconstruction — "what did the agent do between 14:00 and 14:30?"
@@ -380,6 +474,24 @@ Right-size the harness to the use case. Not every agent needs all eight componen
 
 **The Agentic Incident DAG (Airflow Summit demo) is HIGH** — it writes to Slack and creates
 Jira tickets. Minimum: Components 1, 2, 3, 5, 6, 8 + audit trail.
+
+### Worked examples
+
+The Vision walks two canonical agents through all eight components — use them as the reference
+shape when scoping a new agent:
+
+- **Data Quality Monitoring Agent (slide 28)** — monitors pipelines 24/7, reads warehouse + catalog,
+  cannot write to production, escalates root-cause analysis to a human after 3 unresolved iterations.
+  HIGH tier. This is the Vision's everyday example.
+- **Credit Risk Monitoring Agent — financial services (slide 29)** — VERY HIGH / highest risk tier,
+  full three-gate harness, zero write access, customer PII never persisted, single-account scope
+  with bulk-processing tripwires, compliance-tuned evaluator. This is the Vision's regulated example.
+
+Our **Agentic Incident DAG** is the concrete agent we are actually building, and it sits at HIGH
+alongside the data-quality example — same tier, same minimum components. It is not in Jeff's deck;
+that's fine (it's our build target, not a positioning example) and it doesn't contradict the
+Vision. Keep it as our reference implementation; reach for Jeff's two examples when talking shape
+with the team or a client.
 
 ---
 
