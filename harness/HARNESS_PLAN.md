@@ -582,9 +582,12 @@ These need no pending decision and no per-agent input — build now, in any orde
       below logs through it, so build it here. Demo can use local append-only JSON; production
       storage backend is `[D4]` and not needed yet. *Done — local JSONL; tests in
       `tests/test_audit.py`. Components stay pure; the call site logs through it.*
-- [ ] **Component 8 — Human Checkpoints** (`hitl.py`): reuses the Slack MCP (`mcp/mcp_slack/`)
-      `send_message` / `request_approval`. *Prereq:* none for the mechanism. Per-agent timeout
-      *policy* is `[D6]` — config-time, does not block the code.
+- [x] **Component 8 — Human Checkpoints** (`hitl.py`): wraps the Slack MCP's blocking
+      `request_approval` (channel, prompt, timeout_seconds, thread_ts) via an injected
+      `ApprovalTransport` protocol — no MCP import, per Decision Locked #3. Per-agent timeout
+      *policy* `[D6]` (fail-closed / fail-open / escalate) is an enum arg defaulting to
+      fail-closed; escalate raises `HitlEscalationRequired`. *Done — returns a structured
+      `ApprovalDecision` the call site logs through `AuditLog`; tests in `tests/test_hitl.py`.*
 
 ### Phase 2 — I/O screening components
 - [ ] **Component 1 — Input Wrapper** (`input_wrapper.py`): PII strip, injection screen, rate

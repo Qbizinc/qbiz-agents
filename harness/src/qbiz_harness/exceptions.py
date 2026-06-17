@@ -38,3 +38,12 @@ class LoopLimitError(HarnessError):
 
 class PermissionDeniedError(HarnessError):
     """Component 3 — the agent is not permitted to call this tool with these arguments."""
+
+
+class HitlEscalationRequired(HarnessError):
+    """Component 8 — a HITL checkpoint timed out under the *escalate* policy.
+
+    Not a rejection: no human gave a verdict in time and the agent's policy is to neither
+    proceed (fail-open) nor halt silently (fail-closed) but to page a secondary contact and
+    pause. The orchestration layer catches this to route to that escalation path.
+    """

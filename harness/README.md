@@ -17,6 +17,9 @@ Phase 1 foundational components are in (the unblocked, decision-independent ones
   loop guard.
 - `src/qbiz_harness/audit.py` — cross-cutting **append-only audit log** (local JSONL for now;
   production storage backend is decision `[D4]`).
+- `src/qbiz_harness/hitl.py` — **Component 8**: human approval checkpoints. Wraps an injected
+  approval transport (the Slack MCP's `request_approval`); per-agent timeout policy `[D6]`
+  (fail-closed / fail-open / escalate), defaulting to fail-closed for HIGH+.
 
 Still to come, per the plan's build order: input wrapper + output validator (Phase 2), then the
 decision-gated pieces — access controls (`[D1]`), memory scoping (`[D2]`), evaluator (`[D3]`).
@@ -24,8 +27,10 @@ decision-gated pieces — access controls (`[D1]`), memory scoping (`[D2]`), eva
 ## Demo
 
 A no-LLM walkthrough of the harness stopping a runaway agent — the plan's HIGH-tier *Agentic
-Incident DAG* tries to spam Slack, loop forever, and file 50 tickets; the harness caps each in
-code and prints the audit trail. Needs no API key (provider decision `[D3]` is still open).
+Incident DAG* tries to spam Slack, loop forever, and file a ticket; the harness caps the messages
+(Component 5), halts the loop (Component 6), makes a human reject the irreversible ticket
+(Component 8, via a scripted approval transport — no real Slack), then a kill switch stops it cold.
+Every verdict lands in the audit trail. Needs no API key (provider decision `[D3]` is still open).
 
 ```bash
 uv run python demo/incident_runaway.py

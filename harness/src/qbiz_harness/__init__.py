@@ -12,11 +12,18 @@ from qbiz_harness.cost_governor import CostGovernor
 from qbiz_harness.exceptions import (
     BudgetExceededError,
     HarnessError,
+    HitlEscalationRequired,
     InputRejectedError,
     LoopLimitError,
     OutputRejectedError,
     PermissionDeniedError,
     RateLimitError,
+)
+from qbiz_harness.hitl import (
+    ApprovalDecision,
+    ApprovalTransport,
+    TimeoutPolicy,
+    hitl_checkpoint,
 )
 from qbiz_harness.orchestration import LoopGuard, with_retry
 
@@ -31,11 +38,17 @@ __all__ = [
     "BudgetExceededError",
     "LoopLimitError",
     "PermissionDeniedError",
+    "HitlEscalationRequired",
     # Component 5 — Cost & Compute Governors
     "CostGovernor",
     # Component 6 — Orchestration Controls
     "LoopGuard",
     "with_retry",
+    # Component 8 — Human Checkpoints (HITL)
+    "hitl_checkpoint",
+    "ApprovalDecision",
+    "ApprovalTransport",
+    "TimeoutPolicy",
     # Cross-cutting — Audit Log
     "AuditLog",
     "AuditEvent",

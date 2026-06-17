@@ -11,6 +11,7 @@ file a ticket. Because it writes to Slack and creates tickets, it runs inside a 
 
     - Component 5 (CostGovernor): caps messages sent, tokens, spend; carries a kill switch.
     - Component 6 (LoopGuard):    caps how many reasoning iterations the loop may run.
+    - Component 8 (HITL):         a human must clear an irreversible action before it runs.
     - Audit Log:                  records every action and the harness's verdict.
 
 We script the agent to misbehave — the way a real reasoning loop or a prompt injection would —
@@ -25,6 +26,7 @@ Run it:
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -40,7 +42,14 @@ for _stream in (sys.stdout, sys.stderr):
 # Let the demo run straight from the repo without an install step.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from qbiz_harness import AuditLog, CostGovernor, HarnessError, LoopGuard  # noqa: E402
+from qbiz_harness import (  # noqa: E402
+    AuditLog,
+    CostGovernor,
+    HarnessError,
+    LoopGuard,
+    TimeoutPolicy,
+    hitl_checkpoint,
+)
 
 AGENT_ID = "incident-agent"
 ONCALL_CHANNEL = "qbiz_slackbot_testing"  # the designated test channel
@@ -124,6 +133,57 @@ def attempt_send(gov: CostGovernor, audit: AuditLog, channel: str, text: str) ->
         return False
 
 
+# --- Component 8: a human checkpoint before an irreversible action ----------------------------
+#
+# Filing a ticket is consequential and not cleanly reversible, so this HIGH-tier agent must clear
+# it with a human first. In production the transport is the Slack MCP's `request_approval` tool,
+# which posts the prompt and blocks for a ✅/❌ reaction. Here it is a *scripted* operator — no
+# Slack, no API key — so the demo shows the HITL mechanics with zero I/O, exactly like the tests.
+
+
+class ScriptedOperator:
+    """Stand-in for the Slack MCP `request_approval` tool: returns a canned human verdict."""
+
+    def __init__(self, decision: str, user: str = "operator") -> None:
+        self._decision = decision
+        self._user = user
+
+    async def request_approval(self, *, channel: str, prompt: str,
+                               timeout_seconds: int, thread_ts: str | None = None) -> dict:
+        _ = (channel, prompt, timeout_seconds, thread_ts)  # a real transport posts + waits here
+        return {"decision": self._decision, "user": self._user, "ts": "1700000000.001"}
+
+
+def _do_create_ticket(summary: str) -> None:
+    """Stand-in for the Jira ticket tool. No real I/O in the demo."""
+    _ = summary
+
+
+def attempt_create_ticket(gov: CostGovernor, audit: AuditLog, operator: ScriptedOperator,
+                          summary: str) -> bool:
+    """File a ticket *only after* a human clears it — Component 8 in front of Component 5.
+
+    The checkpoint runs fail-closed (the HIGH+ default): if the human rejects — or never answers —
+    the irreversible action does not happen. The verdict, and who gave it, lands in the audit trail.
+    """
+    prompt = f"Agent wants to file a Jira ticket: {summary!r}. Approve? ✅/❌"
+    decision = asyncio.run(hitl_checkpoint(
+        operator,
+        channel=ONCALL_CHANNEL,
+        prompt=prompt,
+        timeout_policy=TimeoutPolicy.FAIL_CLOSED,
+    ))
+    audit.record(agent_id=AGENT_ID, action="create_ticket", decision=decision.decision,
+                 user=decision.user, inputs={"summary": summary})
+    if decision:  # truthy iff approved
+        gov.record_action("tickets_created")
+        _do_create_ticket(summary)
+        allowed(f'human {green("approved")} — filed ticket: "{summary}"')
+        return True
+    denied(f'human {red(decision.decision)} the checkpoint — no ticket filed')
+    return False
+
+
 # --- the run ----------------------------------------------------------------------------------
 
 
@@ -143,8 +203,9 @@ def run_demo() -> None:
     loop_guard = LoopGuard(max_iterations=5)
 
     print(bold("\nAgentic Incident DAG — harnessed run"))
-    print(dim("HIGH-tier agent: writes to Slack, files tickets. Wrapped in Components 5 + 6 + audit."))
-    print(dim(f"Caps this run: messages_sent ≤ 3, loop ≤ 5 iterations, spend ≤ $0.50"))
+    print(dim("HIGH-tier agent: writes to Slack, files tickets. Wrapped in Components 5 + 6 + 8 + audit."))
+    print(dim(f"Caps this run: messages_sent ≤ 3, loop ≤ 5 iterations, spend ≤ $0.50; "
+              f"tickets need human approval."))
 
     # ----------------------------------------------------------------------------------------
     scene("Scene 1 — Normal operation")
@@ -176,8 +237,23 @@ def run_demo() -> None:
           f"{green(str(sent_in_loop))} through, then capped the blast radius — in code.")
 
     # ----------------------------------------------------------------------------------------
-    scene("Scene 3 — Operator pulls the kill switch")
-    agent_says("Still looping. Now wants to escalate by filing 50 Jira tickets.")
+    scene("Scene 3 — A human checkpoint on an irreversible action")
+    print(dim("  The agent decides to escalate by filing a Jira ticket. That's consequential and"))
+    print(dim("  not cleanly reversible, so on a HIGH-tier agent the harness does not let the agent"))
+    print(dim("  decide alone — it pauses and asks a human. This is the layer neither a rule nor an"))
+    print(dim("  evaluator can replace. Here the on-call operator reviews the request and rejects it."))
+    print()
+    agent_says("Filing Jira ticket: 'Restart checkout service in prod (INC-4471)'.")
+    operator = ScriptedOperator(decision="rejected")  # the human reacts ❌
+    attempt_create_ticket(gov, audit, operator,
+                          "Restart checkout service in prod (INC-4471)")
+    print()
+    print(f"  {yellow('→')} The agent wanted to act. A human said no, and the harness made that "
+          f"verdict {bold('binding')} — fail-closed, so a silent timeout would have blocked it too.")
+
+    # ----------------------------------------------------------------------------------------
+    scene("Scene 4 — Operator pulls the kill switch")
+    agent_says("Ignoring the rejection. Still looping; now wants to file 50 tickets anyway.")
     print(dim("  An operator watching the channel engages the global kill switch."))
     gov.kill()
     audit.record(agent_id=AGENT_ID, action="kill_switch", decision="engaged", user="operator")
@@ -200,11 +276,9 @@ def _print_audit_summary(audit: AuditLog) -> None:
 
     for event in audit.events:
         verdict = event.decision
-        if verdict == "allowed":
+        if verdict in ("allowed", "approved"):
             tag = green(f"{verdict:<8}")
-        elif verdict == "engaged":
-            tag = red(f"{verdict:<8}")
-        else:
+        else:  # denied, rejected, engaged
             tag = red(f"{verdict:<8}")
         line = f"  {dim(event.ts[11:19])}  {tag}  {event.action}"
         if event.reason:
@@ -212,7 +286,8 @@ def _print_audit_summary(audit: AuditLog) -> None:
         print(line)
 
     total = len(audit.events)
-    blocked = len(audit.by_decision("denied"))
+    # A denied action and a rejected human checkpoint are both the harness stopping something.
+    blocked = len(audit.by_decision("denied")) + len(audit.by_decision("rejected"))
     print()
     print(bold(f"  {total} actions recorded · {blocked} blocked by the harness."))
     print(bold("  Instructions are a request. The harness is enforcement."))
