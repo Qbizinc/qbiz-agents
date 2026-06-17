@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "generated_at": "2026-06-03",
+  "generated_at": "2026-06-11",
   "skills": [
     {
       "name": "airflow-pipeline-doctor",
@@ -13,6 +13,23 @@
         "astro-airflow"
       ],
       "path": "skills/airflow-pipeline-doctor",
+      "models": [
+        "claude",
+        "gemini"
+      ]
+    },
+    {
+      "name": "slack-bot-setup",
+      "description": "Set up, configure, and use the Slack MCP server for agent communication \u2014 posting, threading, file uploads, and human-in-the-loop (HITL) approval gates. Use when an agent needs to talk to Slack, or when standing up a new Slack bot for a workspace or client (the QBiz bot is the reference template). Requires the slack MCP server.",
+      "roles": [
+        "consultant",
+        "data-engineer",
+        "platform-engineer"
+      ],
+      "requires_mcp": [
+        "slack"
+      ],
+      "path": "skills/slack-bot-setup",
       "models": [
         "claude",
         "gemini"

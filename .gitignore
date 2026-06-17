@@ -6,3 +6,5 @@ dist/
 build/
 .venv/
 references/
+.env
+.env.local

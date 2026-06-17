@@ -1,0 +1,23 @@
+name: slack
+description: Slack integration for agents. Post messages, send DMs, upload files, manage channels, and look up users via the Slack API.
+command: uvx
+args:
+  - --from
+  - git+https://github.com/Qbizinc/qbiz-agents.git#subdirectory=mcp/mcp_slack
+  - slack-mcp
+env:
+  SLACK_BOT_TOKEN: ""
+  SLACK_SIGNING_SECRET: ""
+  SLACK_APP_TOKEN: ""
+  SLACK_DEFAULT_CHANNEL: ""
+  SLACK_INCIDENT_CHANNEL: ""
+tools:
+  - send_message
+  - send_dm
+  - add_reaction
+  - upload_file
+  - list_channels
+  - get_channel_history
+  - find_user
+  - request_approval
+  - wait_for_reply

@@ -63,11 +63,16 @@ def add_mcp(name: str):
             arg = arg.replace(f"${{{key}}}", value).replace(f"${key}", value)
         resolved_args.append(arg)
 
-    # Build the mcpServers entry — values go directly in args, no env section needed
-    server_entry = {
+    # Build the mcpServers entry. Args-based MCPs (e.g. astro-airflow) get values substituted
+    # directly into args above. Env-based MCPs (e.g. slack) pass credentials via environment
+    # variables and need an explicit env section — write both so either pattern works.
+    server_entry: dict = {
         "command": uvx_path,
         "args": resolved_args,
     }
+    env_to_write = {k: v for k, v in filled_env.items() if v}
+    if env_to_write:
+        server_entry["env"] = env_to_write
 
     # Read or create .mcp.json
     if MCP_JSON.exists():
