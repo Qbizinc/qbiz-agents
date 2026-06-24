@@ -1,0 +1,29 @@
+name: rag
+description: >-
+  Baseline Indexed RAG for agents. Ingest files, URLs, or text; semantically search the indexed
+  content; and keep a queryable ledger of every document that's been read and where it lives.
+  Local embeddings by default — no API key required.
+command: uvx
+args:
+  - --from
+  - git+https://github.com/Qbizinc/qbiz-agents.git#subdirectory=mcp/mcp_rag
+  - rag-mcp
+env:
+  # Where the index + ledger persist. Per-project by default.
+  RAG_DATA_DIR: ".rag"
+  # Embedding backend: "fastembed" (local, no key) or "gemini" (hosted; needs GEMINI_API_KEY).
+  RAG_EMBED_BACKEND: "fastembed"
+  RAG_EMBED_MODEL: "BAAI/bge-small-en-v1.5"
+  RAG_CHUNK_SIZE: "1000"
+  RAG_CHUNK_OVERLAP: "150"
+  RAG_MAX_RESULTS: "5"
+  # Only read when RAG_EMBED_BACKEND=gemini. Leave blank for the default local backend.
+  GEMINI_API_KEY: ""
+tools:
+  - ingest
+  - search
+  - list_sources
+  - source_status
+  - forget
+  - reindex
+  - stats

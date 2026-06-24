@@ -372,6 +372,8 @@ cli/
 | Skill | Description | Requires MCP |
 |---|---|---|
 | `airflow-pipeline-doctor` | Identifies broken Airflow pipelines — failed DAG runs, import errors, stuck queues | `astro-airflow` |
+| `slack-bot-setup` | Set up and use the Slack bot for agent communication — posting, threading, files, HITL approval gates | `slack` |
+| `rag-research` | Grounded answers over your own documents — ingest files/URLs/text, semantic search, and a ledger of what's been read. Also the template for specialized RAGs | `rag` |
 
 ---
 
@@ -380,6 +382,8 @@ cli/
 | Name | Description |
 |---|---|
 | `astro-airflow` | Apache Airflow via Astronomer's `astro-airflow-mcp` — DAGs, runs, tasks, logs |
+| `slack` | Slack integration — post messages, DMs, files, manage channels, HITL approval gates |
+| `rag` | Baseline Indexed RAG — ingest documents, semantic search, and a ledger of what's been read. Local embeddings by default (no API key) |
 
 ---
 

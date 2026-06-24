@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "generated_at": "2026-06-11",
+  "generated_at": "2026-06-24",
   "skills": [
     {
       "name": "airflow-pipeline-doctor",
@@ -13,6 +13,23 @@
         "astro-airflow"
       ],
       "path": "skills/airflow-pipeline-doctor",
+      "models": [
+        "claude",
+        "gemini"
+      ]
+    },
+    {
+      "name": "rag-research",
+      "description": "Ground answers in a document corpus using the rag MCP server. Ingest files, URLs, or text; semantically search the index; and keep a ledger of what's been read and where it lives. Use when the user wants answers grounded in their own documents, wants to build up a searchable knowledge base, or asks \"what have I ingested so far\". Also the starting template for a specialized RAG (contracts, tickets, a client's docs). Requires the rag MCP server.",
+      "roles": [
+        "consultant",
+        "data-engineer",
+        "analyst"
+      ],
+      "requires_mcp": [
+        "rag"
+      ],
+      "path": "skills/rag-research",
       "models": [
         "claude",
         "gemini"
