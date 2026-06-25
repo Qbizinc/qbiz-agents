@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "generated_at": "2026-06-11",
+  "generated_at": "2026-06-25",
   "skills": [
     {
       "name": "airflow-pipeline-doctor",
@@ -30,6 +30,23 @@
         "slack"
       ],
       "path": "skills/slack-bot-setup",
+      "models": [
+        "claude",
+        "gemini"
+      ]
+    },
+    {
+      "name": "snowflake-data-explorer",
+      "description": "Use when discovering Snowflake tables, validating SQL join patterns, identifying domain context, or executing text-to-SQL workflows. Leverages data catalog discovery, historical execution analysis, and operational diagnostics to surface enterprise analytics data securely.",
+      "roles": [
+        "data-analyst",
+        "analytics-engineer",
+        "data-engineer"
+      ],
+      "requires_mcp": [
+        "snowflake"
+      ],
+      "path": "skills/snowflake-data-explorer",
       "models": [
         "claude",
         "gemini"

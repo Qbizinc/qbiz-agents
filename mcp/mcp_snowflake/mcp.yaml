@@ -1,0 +1,13 @@
+name: snowflake
+description: Snowflake managed-MCP server. Gives the AI agent secure, context-aware access to execute standard Snowflake SQL queries for READ-ONLY operations (Read Data, Read Schema Metadata, Read Execution Metadata).
+type: streamable-http
+url: "${SNOWFLAKE_MCP_URL}"
+requestOptions:
+  headers:
+    Authorization: "Bearer ${SNOWFLAKE_PAT}"
+    Accept: "application/json"
+env:
+  SNOWFLAKE_MCP_URL: ""
+  SNOWFLAKE_PAT: ""
+tools:
+  - airflow_incident_mcp
