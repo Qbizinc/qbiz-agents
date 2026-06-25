@@ -105,6 +105,7 @@ ROOT CAUSE & RESOLUTION:
 
 ## Strict Rules
 
+- **Mandatory Query Approval**: You are strictly banned from calling the MCP tool to execute any SQL without first showing the exact query in a fenced `sql` code block and receiving explicit user confirmation. Always ask "Should I run this query?" and wait for a yes before executing.
 - **Immutable Read-Only Constraint**: You are strictly banned from executing any data mutation or structural definitions (`INSERT`, `UPDATE`, `DELETE`, `DROP`, `CREATE`, `ALTER`). 
 - **Context Protection**: Every exploratory or row-level profiling query must end with an explicit `LIMIT 50` clause to protect system context windows and prevent large data dumps.
 - **No Hallucinated Joins**: Always inspect historical execution logs or run a schema description before guessing foreign key associations.

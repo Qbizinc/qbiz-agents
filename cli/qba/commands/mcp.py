@@ -66,7 +66,7 @@ def add_mcp(name: str):
         url = _substitute(config.get("url", ""), filled_env)
         raw_headers = config.get("requestOptions", {}).get("headers", {})
         headers = {k: _substitute(v, filled_env) for k, v in raw_headers.items()}
-        server_entry: dict = {"url": url}
+        server_entry: dict = {"type": "streamable-http", "url": url}
         if headers:
             server_entry["headers"] = headers
     else:
@@ -81,7 +81,7 @@ def add_mcp(name: str):
 
     # Read or create .mcp.json
     if MCP_JSON.exists():
-        mcp_config = json.loads(MCP_JSON.read_text())
+        mcp_config = json.loads(MCP_JSON.read_text(encoding="utf-8"))
     else:
         mcp_config = {"mcpServers": {}}
 
@@ -90,7 +90,7 @@ def add_mcp(name: str):
         return
 
     mcp_config["mcpServers"][server_name] = server_entry
-    MCP_JSON.write_text(json.dumps(mcp_config, indent=2))
+    MCP_JSON.write_text(json.dumps(mcp_config, indent=2), encoding="utf-8")
 
     console.print(f"\n[green]Installed:[/green] [bold]{name}[/bold] → .mcp.json")
     if mcp_type == "streamable-http":
