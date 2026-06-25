@@ -23,7 +23,7 @@ The CLI will append these values directly into your local workspace .mcp.json fi
 ## Update Skills 
 
 ```bash 
-qba agent skills add_skill snowflake-data-explorer
+qba agent skills add snowflake-data-explorer
 ```
 
 ## Skipping the approval prompt (optional)
