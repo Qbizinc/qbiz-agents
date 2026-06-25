@@ -44,7 +44,7 @@
         "data-engineer"
       ],
       "requires_mcp": [
-        "snowflake-managed"
+        "snowflake"
       ],
       "path": "skills/snowflake-data-explorer",
       "models": [

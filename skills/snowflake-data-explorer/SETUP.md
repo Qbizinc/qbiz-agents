@@ -10,7 +10,7 @@
 Execute the following installation command in your local project root directory:
 
 ```bash
-qba agent mcp add snowflake-managed
+qba agent mcp add snowflake
 ```
 
 This will automatically guide you through configuring your project connection parameters:  

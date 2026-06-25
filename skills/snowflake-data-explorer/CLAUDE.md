@@ -1,6 +1,6 @@
 # Claude-specific notes for snowflake-data-explorer
 
-- Invoke via the Skill tool. The MCP tool (`airflow_incident_mcp`) is available directly in your tool list when `snowflake-managed` is connected — call it directly.
+- Invoke via the Skill tool. The MCP tool (`airflow_incident_mcp`) is available directly in your tool list when `snowflake` is connected — call it directly.
 - **Peer Join Validation**: Before assembling complex multi-table joins, utilize your internal `<thinking>` space to inspect historical query behavior and extract validated query logic from past executions. Map out whether this is an exploration task or a diagnostic task. Write your draft SQL inside this thinking block to review for syntax errors before execution.
 - Leverage parallel execution loops within a single conversational turn to retrieve schema architecture and query history logs concurrently (e.g., requesting `COLUMNS` and `QUERY_HISTORY`).
 

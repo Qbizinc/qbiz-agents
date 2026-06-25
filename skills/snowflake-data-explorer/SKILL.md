@@ -6,7 +6,7 @@ roles:
   - analytics-engineer
   - data-engineer
 requires_mcp:
-  - snowflake-managed
+  - snowflake
 ---
 
 # Snowflake Data Explorer & Diagnostics
@@ -109,4 +109,4 @@ ROOT CAUSE & RESOLUTION:
 - **Context Protection**: Every exploratory or row-level profiling query must end with an explicit `LIMIT 50` clause to protect system context windows and prevent large data dumps.
 - **No Hallucinated Joins**: Always inspect historical execution logs or run a schema description before guessing foreign key associations.
 - **Fail Gracefully**: If you cannot find the requested data/error after 2 schema exploration attempts, stop and ask the user for the specific database or schema name.
-- If `snowflake-managed` is not connected, instruct the user to run `qba agent mcp add snowflake-managed` and restart their session
+- If `snowflake` is not connected, instruct the user to run `qba agent mcp add snowflake` and restart their session
