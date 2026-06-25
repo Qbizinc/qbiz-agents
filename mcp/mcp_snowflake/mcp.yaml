@@ -7,4 +7,4 @@ requestOptions:
     Authorization: Bearer ${SNOWFLAKE_PAT}"
     Accept: "application/json"
 tools:
-  - query_snowflake_database
+  - airflow_incident_mcp
