@@ -1,5 +1,4 @@
 ---
-
 name: jira-ticket-management
 description: Use the Jira MCP server to create, search, review, and update Jira tickets for task tracking, incident management, and workflow automation. Use when an agent needs to interact with Jira or when setting up Jira-based tracking for a project or client. Requires the jira MCP server.
 roles:

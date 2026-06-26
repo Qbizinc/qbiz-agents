@@ -31,13 +31,22 @@ JIRA_API_TOKEN = os.getenv("JIRA_API_TOKEN")
 DEFAULT_PROJECT = os.getenv("JIRA_DEFAULT_PROJECT")
 
 # ------------------------------------------------------------------------------
-# Jira Client
+# Jira Client (lazy — initialized on first use so missing env vars don't crash at import)
 # ------------------------------------------------------------------------------
 
-jira = JIRA(
-    server=JIRA_URL,
-    basic_auth=(JIRA_EMAIL, JIRA_API_TOKEN)
-)
+_jira_client: JIRA | None = None
+_valid_projects_cache: list[str] | None = None
+
+
+def _get_jira() -> JIRA:
+    global _jira_client
+    if _jira_client is None:
+        if not JIRA_URL or not JIRA_EMAIL or not JIRA_API_TOKEN:
+            raise RuntimeError(
+                "Missing Jira credentials. Set JIRA_URL, JIRA_EMAIL, and JIRA_API_TOKEN."
+            )
+        _jira_client = JIRA(server=JIRA_URL, basic_auth=(JIRA_EMAIL, JIRA_API_TOKEN))
+    return _jira_client
 
 # ------------------------------------------------------------------------------
 # Helpers
@@ -48,8 +57,10 @@ def resolve_project(project_key: str | None) -> str:
 
 
 def validate_project(project_key: str) -> None:
-    valid_projects = [p.key for p in jira.projects()]
-    if project_key not in valid_projects:
+    global _valid_projects_cache
+    if _valid_projects_cache is None:
+        _valid_projects_cache = [p.key for p in _get_jira().projects()]
+    if project_key not in _valid_projects_cache:
         raise ValueError(f"Invalid project: {project_key}")
 
 # ------------------------------------------------------------------------------
@@ -87,7 +98,7 @@ def create_jira_ticket(
     project = resolve_project(project_key)
     validate_project(project)
 
-    issue = jira.create_issue(
+    issue = _get_jira().create_issue(
         project=project,
         summary=summary,
         description=description,
@@ -131,7 +142,7 @@ def search_jira_tickets(
     if jql:
         full_jql += f" AND ({jql})"
 
-    issues = jira.search_issues(full_jql, maxResults=max_results)
+    issues = _get_jira().search_issues(full_jql, maxResults=max_results)
 
     return [
         {
@@ -161,7 +172,7 @@ def add_jira_comment(issue_key: str, comment: str) -> str:
         Confirmation string
     """
 
-    jira.add_comment(issue_key, comment)
+    _get_jira().add_comment(issue_key, comment)
     return f"Added comment to {issue_key}"
 
 
@@ -187,14 +198,14 @@ def review_jira_ticket(issue_key: str) -> dict:
         - assignee
     """
 
-    issue = jira.issue(issue_key)
+    issue = _get_jira().issue(issue_key)
 
     return {
         "key": issue.key,
         "summary": issue.fields.summary,
         "description": issue.fields.description,
         "status": issue.fields.status.name,
-        "assignee": str(issue.fields.assignee),
+        "assignee": str(issue.fields.assignee) if issue.fields.assignee else None,
     }
 
 
@@ -214,12 +225,16 @@ def list_projects() -> list:
 
     return [
         {"key": p.key, "name": p.name}
-        for p in jira.projects()
+        for p in _get_jira().projects()
     ]
 
 # ------------------------------------------------------------------------------
 # Server Entry Point
 # ------------------------------------------------------------------------------
 
-if __name__ == "__main__":
+def main():
     mcp.run()
+
+
+if __name__ == "__main__":
+    main()

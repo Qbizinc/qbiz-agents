@@ -31,7 +31,8 @@
       ],
       "path": "skills/jira-tickets",
       "models": [
-        "claude"
+        "claude",
+        "gemini"
       ]
     },
     {

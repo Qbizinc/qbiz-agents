@@ -1,6 +1,4 @@
-def main():
-    print("Hello from jira-mcp!")
-
+from jira_mcp.jira_mcp import main
 
 if __name__ == "__main__":
     main()
