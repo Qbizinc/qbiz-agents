@@ -19,6 +19,23 @@
       ]
     },
     {
+      "name": "jira-ticket-management",
+      "description": "Use the Jira MCP server to create, search, review, and update Jira tickets for task tracking, incident management, and workflow automation. Use when an agent needs to interact with Jira or when setting up Jira-based tracking for a project or client. Requires the jira MCP server.",
+      "roles": [
+        "consultant",
+        "data-engineer",
+        "platform-engineer"
+      ],
+      "requires_mcp": [
+        "jira"
+      ],
+      "path": "skills/jira-tickets",
+      "models": [
+        "claude",
+        "gemini"
+      ]
+    },
+    {
       "name": "slack-bot-setup",
       "description": "Set up, configure, and use the Slack MCP server for agent communication \u2014 posting, threading, file uploads, and human-in-the-loop (HITL) approval gates. Use when an agent needs to talk to Slack, or when standing up a new Slack bot for a workspace or client (the QBiz bot is the reference template). Requires the slack MCP server.",
       "roles": [

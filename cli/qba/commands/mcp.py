@@ -18,6 +18,7 @@ def _find_uvx() -> str:
         return found
     candidates = [
         Path.home() / "anaconda3" / "Scripts" / "uvx.exe",
+        Path.home() / "AppData" / "Local" / "uv" / "bin" / "uvx.exe",
         Path.home() / ".local" / "bin" / "uvx",
         Path.home() / ".cargo" / "bin" / "uvx",
     ]
