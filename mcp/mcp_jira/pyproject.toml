@@ -2,7 +2,6 @@
 name = "qbiz-jira-mcp"
 version = "0.1.0"
 description = "Jira MCP server for qbiz agents"
-readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "httpx>=0.28.1",
