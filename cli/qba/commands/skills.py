@@ -88,7 +88,8 @@ def _install_skill(name: str, manifest: dict, models: list):
         console.print(f"[red]Skill '{name}' not found in registry.[/red]")
         return
 
-    files = fetch_skill_files(name, models)
+    skill_folder = skill_entry.get("path", f"skills/{name}").split("/")[-1]
+    files = fetch_skill_files(name, models, skill_folder=skill_folder)
     if not files:
         console.print(f"[red]Could not fetch files for skill '{name}'.[/red]")
         return
