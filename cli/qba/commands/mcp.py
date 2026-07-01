@@ -18,6 +18,7 @@ def _find_uvx() -> str:
         return found
     candidates = [
         Path.home() / "anaconda3" / "Scripts" / "uvx.exe",
+        Path.home() / "AppData" / "Local" / "uv" / "bin" / "uvx.exe",
         Path.home() / ".local" / "bin" / "uvx",
         Path.home() / ".cargo" / "bin" / "uvx",
     ]
@@ -25,6 +26,12 @@ def _find_uvx() -> str:
         if path.exists():
             return str(path)
     return "uvx"
+
+
+def _substitute(value: str, env: dict) -> str:
+    for key, val in env.items():
+        value = value.replace(f"${{{key}}}", val).replace(f"${key}", val)
+    return value
 
 
 @click.group()
@@ -52,44 +59,45 @@ def add_mcp(name: str):
             value = click.prompt(f"  {key}", default=default or "", show_default=bool(default))
             filled_env[key] = value.strip().lstrip("﻿")
 
-    # Resolve uvx path
-    uvx_path = _find_uvx()
+    server_name = config.get("name", name)
+    mcp_type = config.get("type", "stdio")
 
-    # Substitute env var placeholders in args with actual values
-    args = config.get("args", [])
-    resolved_args = []
-    for arg in args:
-        for key, value in filled_env.items():
-            arg = arg.replace(f"${{{key}}}", value).replace(f"${key}", value)
-        resolved_args.append(arg)
-
-    # Build the mcpServers entry. Args-based MCPs (e.g. astro-airflow) get values substituted
-    # directly into args above. Env-based MCPs (e.g. slack) pass credentials via environment
-    # variables and need an explicit env section — write both so either pattern works.
-    server_entry: dict = {
-        "command": uvx_path,
-        "args": resolved_args,
-    }
-    env_to_write = {k: v for k, v in filled_env.items() if v}
-    if env_to_write:
-        server_entry["env"] = env_to_write
+    if mcp_type == "streamable-http":
+        # HTTP-based MCP — write url + headers into .mcp.json
+        url = _substitute(config.get("url", ""), filled_env)
+        raw_headers = config.get("requestOptions", {}).get("headers", {})
+        headers = {k: _substitute(v, filled_env) for k, v in raw_headers.items()}
+        server_entry: dict = {"type": "streamable-http", "url": url}
+        if headers:
+            server_entry["headers"] = headers
+    else:
+        # stdio-based MCP — write command + args (+ env for env-based MCPs like Slack)
+        uvx_path = _find_uvx()
+        args = config.get("args", [])
+        resolved_args = [_substitute(arg, filled_env) for arg in args]
+        server_entry = {"command": uvx_path, "args": resolved_args}
+        env_to_write = {k: v for k, v in filled_env.items() if v}
+        if env_to_write:
+            server_entry["env"] = env_to_write
 
     # Read or create .mcp.json
     if MCP_JSON.exists():
-        mcp_config = json.loads(MCP_JSON.read_text())
+        mcp_config = json.loads(MCP_JSON.read_text(encoding="utf-8"))
     else:
         mcp_config = {"mcpServers": {}}
 
-    server_name = config.get("name", name)
     if server_name in mcp_config["mcpServers"]:
         console.print(f"[yellow]{name} MCP already installed. Skipping.[/yellow]")
         return
 
     mcp_config["mcpServers"][server_name] = server_entry
-    MCP_JSON.write_text(json.dumps(mcp_config, indent=2))
+    MCP_JSON.write_text(json.dumps(mcp_config, indent=2), encoding="utf-8")
 
     console.print(f"\n[green]Installed:[/green] [bold]{name}[/bold] → .mcp.json")
-    console.print(f"  uvx path: [dim]{uvx_path}[/dim]")
+    if mcp_type == "streamable-http":
+        console.print(f"  url: [dim]{server_entry['url']}[/dim]")
+    else:
+        console.print(f"  uvx path: [dim]{server_entry['command']}[/dim]")
     console.print("\n  To skip the MCP approval prompt each session, add this to [bold].claude/settings.json[/bold]:")
     console.print('  [dim]{ "enableAllProjectMcpServers": true }[/dim]')
 
@@ -108,4 +116,7 @@ def list_mcp():
         return
 
     for server_name, entry in servers.items():
-        console.print(f"[bold cyan]{server_name}[/bold cyan] — {entry.get('command')} {' '.join(entry.get('args', []))}")
+        if "url" in entry:
+            console.print(f"[bold cyan]{server_name}[/bold cyan] — {entry['url']}")
+        else:
+            console.print(f"[bold cyan]{server_name}[/bold cyan] — {entry.get('command')} {' '.join(entry.get('args', []))}")

@@ -64,13 +64,17 @@ def _verify(content: str, path: str, checksums: dict) -> bool:
     return actual == checksums[path]
 
 
-def fetch_skill_files(skill_name: str, models: list) -> dict:
-    """Fetch SKILL.md, SETUP.md, OWNERS.yaml and requested model sidecars."""
+def fetch_skill_files(skill_name: str, models: list, skill_folder: str | None = None) -> dict:
+    """Fetch SKILL.md, SETUP.md, OWNERS.yaml and requested model sidecars.
+
+    skill_folder is the actual directory name under skills/ (may differ from skill_name).
+    """
     files = {}
     checksums = _fetch_checksums()
+    folder = skill_folder or skill_name
 
     if LOCAL_REGISTRY:
-        skill_dir = Path(LOCAL_REGISTRY) / "skills" / skill_name
+        skill_dir = Path(LOCAL_REGISTRY) / "skills" / folder
         for filename in ["SKILL.md", "SETUP.md", "OWNERS.yaml"]:
             f = skill_dir / filename
             if f.exists():
@@ -83,16 +87,16 @@ def fetch_skill_files(skill_name: str, models: list) -> dict:
         return files
 
     for filename in ["SKILL.md", "SETUP.md", "OWNERS.yaml"]:
-        path = f"skills/{skill_name}/{filename}"
-        r = httpx.get(f"{SKILLS_BASE_URL}/{skill_name}/{filename}", timeout=10)
+        path = f"skills/{folder}/{filename}"
+        r = httpx.get(f"{SKILLS_BASE_URL}/{folder}/{filename}", timeout=10)
         if r.status_code == 200:
             if not _verify(r.text, path, checksums):
                 raise click.ClickException(f"Checksum mismatch for {path} — file may have been tampered with.")
             files[filename] = r.text
     for model in models:
         sidecar = "CLAUDE.md" if model == "claude" else "GEMINI.md"
-        path = f"skills/{skill_name}/{sidecar}"
-        r = httpx.get(f"{SKILLS_BASE_URL}/{skill_name}/{sidecar}", timeout=10)
+        path = f"skills/{folder}/{sidecar}"
+        r = httpx.get(f"{SKILLS_BASE_URL}/{folder}/{sidecar}", timeout=10)
         if r.status_code == 200:
             if not _verify(r.text, path, checksums):
                 raise click.ClickException(f"Checksum mismatch for {path} — file may have been tampered with.")

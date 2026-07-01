@@ -450,9 +450,13 @@ Not one of the Vision's eight, but referenced throughout it (it appears in the r
 infrastructure every other component logs through**, not a ninth component — an engineering
 refinement that doesn't change the Vision's count. The audit log is a **first-class data product,
 not a log file.** For any HIGH+ agent:
-- Append-only storage (CloudWatch, BigQuery, S3 with object lock)
-- Structured events with a consistent schema: `{agent_id, action, inputs, outputs, ts, user, decision}`
-- Queryable for forensic reconstruction — "what did the agent do between 14:00 and 14:30?"
+- Append-only storage via a **pluggable, warehouse-agnostic writer** (client warehouse preferred;
+  SQLAlchemy MySQL/Postgres fallback; local JSONL for the demo) — see **Fleet Operation** and `[D4]`
+- Structured events with a consistent schema: `{agent_id, action, inputs, outputs, ts, user,
+  decision}`, plus the fleet fields `{event_type, intervention, incident_id, cohort, job_id}` that
+  separate **harness interventions** from **in-band agent actions** (see Fleet Operation)
+- Queryable for forensic reconstruction — "what did the agent do between 14:00 and 14:30?" and, at
+  fleet scale, "how often did the harness intervene this week, and on which jobs?"
 - HITL decision (who approved, what they saw, when) stored alongside the action
 
 ---
@@ -498,6 +502,140 @@ alongside the data-quality example — same tier, same minimum components. It is
 that's fine (it's our build target, not a positioning example) and it doesn't contradict the
 Vision. Keep it as our reference implementation; reach for Jeff's two examples when talking shape
 with the team or a client.
+
+---
+
+## Fleet Operation — Multiple Concurrent Agents
+
+Raised by Scott Mitchell in the 2026-06-19 team meeting: how does this work when a client has us
+put agents in place across many jobs — e.g. monitoring 100 Airflow jobs? One agent for all 100?
+One per job? Groups? And how do we *see* what happens across the fleet — in particular, when the
+**harness stepped in** vs. when the **agent handled the issue itself**? This section is the answer.
+Treat the topology and audit-schema parts as decided-in-principle and the manifest/inheritance
+details as a proposal pending iteration with Scott.
+
+> **High-level pre-read:** [`docs/fleet_design.md`](docs/fleet_design.md) is the shareable,
+> plain-language version of this section (written for a non-engineering read). Keep the two in
+> sync — this section is the engineering source of truth; the doc is the summary.
+
+### "Agent" is three units, not one
+
+The "1 vs 100" question conflates three independent things. Separate them and the tension dissolves:
+
+- **Work unit** — an Airflow job/DAG. Fixed by the client (100 of them).
+- **Governance scope** — an `agent_id`: the key that access controls, cost caps, and audit
+  attribution hang off. This is the unit of **blast radius and least privilege**.
+- **Reasoning invocation** — one harness-wrapped LLM call. The only thing that costs money.
+
+Nothing forces these to be 1:1:1.
+
+### Topology: watcher tier + per-cohort reasoning
+
+**Do not run 100 always-on LLM agents, and do not run one agent holding the union of all 100 jobs'
+permissions.** Instead:
+
+- **Watcher tier (1:1 with jobs, ~free).** Airflow already runs the jobs and already fires
+  `on_failure_callback` / SLA-miss / retry-exhausted hooks per task. That is the detection layer —
+  deterministic, zero LLM cost, scales arbitrarily. This is step 1 of the cost waterfall ("can a
+  deterministic rule answer this? → use it") applied to detection. No LLM idles on a healthy job.
+- **Reasoning tier (invoked per incident).** When a watcher escalates, it invokes a harness-wrapped
+  reasoning agent under a **cohort `agent_id`**. Cost is per incident, not per job-hour: a healthy
+  fleet is nearly free; you pay when something actually breaks.
+
+This removes the cost objection to per-job agents (no idle LLMs) **and** the blast-radius objection
+to a single agent (no identity with union-of-everything permissions).
+
+### How many agent identities? Group by `(risk tier × system/credential scope × owner)`
+
+Not 100, not 1. The agent identity is **the unit over which you are willing to share a blast radius
+and a least-privilege scope** — not the unit of work. Jobs that touch the same systems, carry the
+same risk tier, and belong to the same team share one `agent_id`; jobs that differ in *what they can
+touch* or *how dangerous they are* must not. In practice 100 jobs collapse to **~5–15 cohort
+identities** (e.g. `finance-tier-HIGH`, `marketing-readonly-LOW`, `platform-tier-MEDIUM`), each with
+a tight allowlist instead of the union of all 100 jobs' permissions.
+
+### Configuration & management at fleet scale
+
+~12 cohorts is manageable; hand-authoring 12 near-identical `agents/<name>/` dirs (let alone 100) is
+not. Two additions to the per-agent config layout:
+
+1. **Fleet manifest** — one version-controlled file mapping `job → cohort → agent_id`. This *is* the
+   management surface: the whole topology reviewable and diffable in one place. Adding or moving a job
+   is a manifest edit.
+2. **Config inheritance** — org defaults → cohort template (by risk tier) → per-cohort override.
+   Author one HIGH-tier template, not twelve copies. (omnigent's stacked server > agent > session
+   policy scopes are precedent that layered policy is the right shape.)
+
+This **sharpens `[D1]`**: at fleet scale, identity is "the launcher assigns `agent_id` from the
+manifest," which favors the env-var-set-by-launcher option over a per-agent signed token, and means
+D1 must be decided with the manifest in mind. Fleet operation raises D1's urgency.
+
+### Aggregate audit: separating "harness intervened" from "agent handled it"
+
+This is the core observability requirement. Every event must be classifiable as one of:
+
+- **In-band** — the agent reasoned and acted *within* its bounds (diagnosed, escalated normally,
+  resolved). The agent doing its job.
+- **Intervention** — a control *fired* (cost cap, loop guard, tool-permission denial, output-validator
+  rejection, HITL block, kill switch). The harness changed what would otherwise have happened.
+
+The components already raise exceptions and the *call site* logs through the audit log, so the
+exception boundary is exactly where an intervention is stamped. Extend the audit schema (currently
+`{agent_id, action, inputs, outputs, ts, user, decision}`) with:
+
+| Field | Purpose |
+|---|---|
+| `event_type` | `agent_action` / `harness_intervention` / `hitl_decision` / `evaluator_flag` — the in-band vs. intervention split |
+| `intervention` | on interventions: which component fired and what it prevented (e.g. `cost_governor: capped messages_sent at 20`) |
+| `incident_id` | correlation/trace id stitching one incident across watcher → reasoning → tool calls → interventions → HITL → resolution |
+| `cohort`, `job_id` | fleet attribution — which cohort/job an event belongs to |
+
+`incident_id` is what turns interleaved multi-agent streams into reconstructable stories. With it:
+
+- **Per incident:** "Job X failed → `finance-HIGH` agent diagnosed → tried 50 Slack msgs → cost
+  governor capped at 20 → escalated to human → approved rollback."
+- **Aggregate (week):** "312 incidents across 100 jobs; agents handled 280 in-band; harness intervened
+  32× (18 cost caps, 9 loop guards, 5 HITL rejections)."
+
+The **harness intervention rate is a product metric** — the empirical measure of how often the harness
+earned its keep, and a strong Summit/client artifact ("over 30 days the harness caught N runaway loops
+and M over-budget excursions before they reached your Slack/Jira/warehouse"). Trend it: rising = agents
+degrading or limits too tight; falling = trust increasing.
+
+**Interventions need a post-hoc label.** Not every intervention is a good catch — some are false
+positives (limit too tight, agent was fine). Support a label (human review, or the evaluator labels a
+sample) so "32 interventions" doesn't read as all-good or all-bad, and feed it back into limit tuning.
+
+### Audit backend: warehouse-agnostic, pluggable — `[D4]`
+
+Per-run local JSONL cannot answer any of the cross-agent queries above; fleet monitoring needs a
+shared, append-only, *queryable* store. **The store must be flexible to the client's stack** — we
+write to whatever warehouse the client already runs (Snowflake, BigQuery, Redshift, …) so the audit
+data lands where their broader analytics already live. That co-location is the *preferred* outcome:
+the audit log was always specced as a first-class data product, and putting it in the client warehouse
+lets it join the rest of their analytics.
+
+Therefore the audit writer is a **pluggable backend behind one append-only interface**, not a single
+technology:
+
+- **Preferred:** the client's existing warehouse (Snowflake / BigQuery / Redshift) — audit data joins
+  their analytics.
+- **Portable fallback:** a small dedicated SQL DB (MySQL / Postgres) via **SQLAlchemy**, for clients
+  without a suitable warehouse or where we want the agent audit isolated. SQLAlchemy keeps the writer
+  engine-agnostic so the same code targets Postgres, MySQL, Snowflake, or Redshift.
+- **Demo / local:** append-only JSONL (already built) — no infra.
+
+So `[D4]` is a *pluggable-writer* decision, not a single-vendor pick: build one append-only writer
+interface; select the engine per engagement. The fleet dashboard is then plain SQL over the audit
+table regardless of engine — QBiz's wheelhouse, and a clean dogfooding story (we monitor your agents
+with the same warehouse tooling we sell you).
+
+### Relationship to Deferred Concerns
+
+This section addresses **concurrent, independent** fleet operation (Deferred Concern #4 observability,
+now design-led rather than parked). It does **not** resolve **agent-to-agent composition** (#1 — the
+trust model when agent A *calls* agent B): that stays deferred until we actually chain agents.
+Concurrent ≠ chained.
 
 ---
 
@@ -547,11 +685,15 @@ qbiz-agents/
 │   │   ├── hitl.py                 # Component 8
 │   │   └── audit.py                # cross-cutting audit log
 │   └── tests/                      # Gate 1 lives here
-├── agents/<agent_name>/            # per-agent config (no harness code changes)
-│   ├── permissions.yaml            # which tools this agent can call
-│   ├── limits.yaml                 # token budget, spend cap, retry limits, timeouts
-│   ├── evaluator_rubric.md         # Component 7 adversarial prompt
-│   └── AGENTS.md                   # agent identity, scope, operating rules (versioned)
+├── agents/                         # per-agent config (no harness code changes)
+│   ├── fleet.yaml                  # fleet manifest: job → cohort → agent_id (see Fleet Operation)
+│   ├── _defaults.yaml              # org-wide policy defaults (inherited by all cohorts)
+│   ├── _templates/<risk_tier>.yaml # cohort templates by risk tier (inherited + overridden)
+│   └── <cohort_name>/              # per-cohort overrides
+│       ├── permissions.yaml        # which tools this cohort can call
+│       ├── limits.yaml             # token budget, spend cap, retry limits, timeouts
+│       ├── evaluator_rubric.md     # Component 7 adversarial prompt
+│       └── AGENTS.md               # agent identity, scope, operating rules (versioned)
 └── mcp/                            # existing MCP servers (Slack, Astro/Airflow, …)
 ```
 
@@ -593,8 +735,15 @@ These need no pending decision and no per-agent input — build now, in any orde
 - [ ] **Component 1 — Input Wrapper** (`input_wrapper.py`): PII strip, injection screen, rate
       limit, safety inject. *Prereqs:* per-agent PII type definitions + injection-screening
       dependency choice `[D5]`. Regex-only screening can ship first; Guardrails/Rebuff added later.
-- [ ] **Component 2 — Output Validator** (`output_validator.py`): format check, hallucinated-tool
+- [x] **Component 2 — Output Validator** (`output_validator.py`): format check, hallucinated-tool
       block, out-of-scope flag. *Prereq:* the per-agent tool allowlist (shared with Component 3).
+      *Done — pure Layer-1 checks raising `OutputRejectedError`; each check opt-in at the call site.
+      `check_format` is a lightweight `{field: type}` schema (JSON-string parse, bool-not-int guard),
+      not full JSON-Schema — a richer contract is a later dependency choice. Partial-output policy
+      realized as two entry points: `validate_output` (raises → reject-and-re-prompt) and
+      `inspect_output` (returns `ValidationResult` of `Violation`s → strip-and-log). Factual
+      consistency + deep semantics deferred to the evaluator (Component 7). Tests in
+      `tests/test_output_validator.py`.*
 
 ### Phase 3 — Tool access controls — **BLOCKED on `[D1]`**
 - [ ] **Component 3 — Tool-Level Access Controls** (`access_controls.py`). Cannot start until the
@@ -617,6 +766,25 @@ These need no pending decision and no per-agent input — build now, in any orde
       therefore on `[D3]`. Soft target for the Airflow demo; **required before any client engagement.**
 - [ ] **Gate 3** (human red team): post-demo unless the demo is client-facing.
 
+### Phase 7 — Fleet operation (design-led; near-term audit tagging)
+Direction set 2026-06-19 (Scott Mitchell). See **Fleet Operation** for the full design.
+- [x] **Audit tagging (near-term, no blocker):** add `event_type`, `intervention`, `incident_id`,
+      `cohort`, `job_id` to the `audit.py` event schema and stamp interventions at the call-site
+      exception boundary. Doable now against the existing JSONL writer; unlocks the
+      in-band-vs-intervention view before any backend swap. *Done — `EventType` str-enum,
+      `Intervention(component, prevented, label)` + `InterventionLabel` (post-hoc good-catch /
+      false-positive), all fields additive/optional on `AuditEvent`. `AuditLog.record_intervention(...)`
+      is the call-site exception-boundary helper; `interventions()`, `by_event_type()`,
+      `by_incident()`, and `intervention_counts()` (drives the "18 cost caps, 9 loop guards"
+      dashboard line) query it. Tests in `tests/test_audit.py`.*
+- [ ] **Pluggable audit writer `[D4]`:** one append-only writer interface; engine selected per
+      engagement (client warehouse preferred; SQLAlchemy MySQL/Postgres fallback; JSONL for demo).
+- [ ] **Fleet manifest + config inheritance:** `agents/fleet.yaml` (job → cohort → agent_id) plus
+      org-defaults → cohort-template → per-cohort-override resolution. Couples to `[D1]`
+      (launcher-assigned identity from the manifest).
+- [ ] **Watcher tier:** wire Airflow `on_failure_callback` / SLA-miss hooks to invoke a
+      harness-wrapped reasoning agent per incident under its cohort `agent_id`.
+
 ---
 
 ## Required Decisions
@@ -635,10 +803,10 @@ are **ours to make** at build time.
 
 | ID | Decision | Blocks | Needed by | Type / status |
 |---|---|---|---|---|
-| **D1** | **Agent-identity injection** — env var (set by launcher) vs. signed token at harness init. Never read from LLM output. | Component 3 (Phase 3) — entire access-control layer | Before Phase 3. **Hard requirement before any client engagement** (client-facing agents are HIGH+ and need Component 3). | Team. *Pending review.* |
+| **D1** | **Agent-identity injection** — env var (set by launcher) vs. signed token at harness init. Never read from LLM output. Fleet operation favors *launcher-assigned-from-manifest* (see **Fleet Operation**). | Component 3 (Phase 3) — entire access-control layer; also the fleet manifest (Phase 7) | Before Phase 3. **Hard requirement before any client engagement** (client-facing agents are HIGH+ and need Component 3). | Team. *Pending review.* |
 | **D2** | **Shared vs. per-agent memory backend** — does any agent share memory with another? | Component 4 (Phase 4) — whether it's built at all | Before Phase 4. Low urgency; **default to per-agent (skip Component 4)** until a shared backend is actually introduced. | Team. *Open; safe default exists.* |
 | **D3** | **LLM provider + evaluator model** — Qbiz may lack an Anthropic key; Gemini possible. Evaluator must be a *different* model than the primary, so this picks both. Also gates the demo driver `incident_demo.py`. | Component 7 (Phase 5) + Gate 2 + demo driver | **Soft target: the Airflow demo** (fine if not ready). **Hard requirement before any client engagement** using the MCP servers. | Team. *Pending — see project memory `llm_provider_open_question`.* |
-| **D4** | **Audit storage backend (HIGH+)** — local append-only JSON for the demo vs. BigQuery / S3-object-lock for production. | Production-grade audit only — *not* the demo | Before any HIGH+ production deploy. Demo uses local JSON. | Ours. *Low urgency; default local JSON now.* |
+| **D4** | **Audit storage backend (HIGH+)** — *pluggable, warehouse-agnostic writer*, not a single vendor. Preferred: client's existing warehouse (Snowflake / BigQuery / Redshift) so audit joins their analytics; portable fallback: small MySQL/Postgres via SQLAlchemy; demo: local JSONL (built). See **Fleet Operation**. | Production-grade audit **and all fleet aggregate monitoring** | Before any HIGH+ production deploy or any multi-agent client engagement. Demo uses local JSONL. | Ours. *Promoted by the fleet direction (2026-06-19); build one writer interface, pick the engine per engagement.* |
 | **D5** | **Injection-screening dependency** — regex-only vs. Guardrails AI vs. Rebuff. | Full Component 1 (Phase 2) | At Phase 2. Ship regex-only first; add a library later if needed. | Ours. *Decide at build time.* |
 | **D6** | **HITL timeout policy (per agent)** — fail-closed / fail-open / escalate. | Per-agent config, **not** the Component 8 mechanism | At each agent's config time. **Default fail-closed for HIGH+.** | Ours. *Per-agent, default exists.* |
 
@@ -665,16 +833,20 @@ The 3× range is meaningless without knowing what moves it. The deciding factors
 
 Real, but not load-bearing yet. Addressed when a concrete use case forces them — not pre-built.
 
-1. **Multi-agent harness composition** — when agent A calls agent B, what is the trust model?
+1. **Multi-agent harness composition** — when agent A *calls* agent B, what is the trust model?
    Does B's harness fire independently? If A is compromised, can it pass malicious inputs that
-   bypass B's input wrapper? Decide when we first chain agents.
+   bypass B's input wrapper? Decide when we first chain agents. (*Concurrent, independent* fleet
+   operation is now designed — see **Fleet Operation**; this concern is specifically agent-to-agent
+   *chaining*, which remains deferred. Concurrent ≠ chained.)
 2. **Separate-repo extraction** — only when a non-agent consumer needs the harness without the
    whole repo, or audit access must be narrower than repo write access. Cheap to do later given
    the one-way dependency rule.
 3. **Harness versioning & migration** — running old and new harnesses in parallel for comparison
    across a model-generation change. Revisit at the first such migration.
-4. **Observability spec** — *what* to monitor, alert thresholds, what "behavioral drift" looks
-   like. LangSmith / Arize are candidate COTS tools; spec the signals when we instrument.
+4. **Observability spec** — **now design-led, not parked (2026-06-19):** the fleet audit schema
+   (`event_type` / `intervention` / `incident_id`) and the harness-intervention-rate metric in
+   **Fleet Operation** are the core of this spec. Still to spec: alert thresholds and the
+   "behavioral drift" signal; LangSmith / Arize remain candidate COTS tools.
 5. **Harness security / supply chain** — the harness is itself the enforcement boundary. Who
    audits it, how often, and dependency-pinning for Guardrails AI et al. Pairs with the
    `CODEOWNERS` decision — both trigger when code reaches client hardware.

@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "generated_at": "2026-06-24",
+  "generated_at": "2026-07-01",
   "skills": [
     {
       "name": "airflow-pipeline-doctor",
@@ -13,6 +13,23 @@
         "astro-airflow"
       ],
       "path": "skills/airflow-pipeline-doctor",
+      "models": [
+        "claude",
+        "gemini"
+      ]
+    },
+    {
+      "name": "jira-ticket-management",
+      "description": "Use the Jira MCP server to create, search, review, and update Jira tickets for task tracking, incident management, and workflow automation. Use when an agent needs to interact with Jira or when setting up Jira-based tracking for a project or client. Requires the jira MCP server.",
+      "roles": [
+        "consultant",
+        "data-engineer",
+        "platform-engineer"
+      ],
+      "requires_mcp": [
+        "jira"
+      ],
+      "path": "skills/jira-tickets",
       "models": [
         "claude",
         "gemini"
@@ -47,6 +64,23 @@
         "slack"
       ],
       "path": "skills/slack-bot-setup",
+      "models": [
+        "claude",
+        "gemini"
+      ]
+    },
+    {
+      "name": "snowflake-data-explorer",
+      "description": "Use when discovering Snowflake tables, validating SQL join patterns, identifying domain context, or executing text-to-SQL workflows. Leverages data catalog discovery, historical execution analysis, and operational diagnostics to surface enterprise analytics data securely.",
+      "roles": [
+        "data-analyst",
+        "analytics-engineer",
+        "data-engineer"
+      ],
+      "requires_mcp": [
+        "snowflake"
+      ],
+      "path": "skills/snowflake-data-explorer",
       "models": [
         "claude",
         "gemini"
