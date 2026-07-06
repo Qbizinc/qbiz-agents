@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "generated_at": "2026-07-01",
+  "generated_at": "2026-07-06",
   "skills": [
     {
       "name": "airflow-pipeline-doctor",
@@ -30,6 +30,23 @@
         "jira"
       ],
       "path": "skills/jira-tickets",
+      "models": [
+        "claude",
+        "gemini"
+      ]
+    },
+    {
+      "name": "rag-incident-memory",
+      "description": "Give an incident-response agent a persistent memory of past incidents and the tickets they opened, using the rag MCP server. Before diagnosing a failure, recall prior similar incidents on the same system to detect recurrence; after resolving one, record a structured incident report keyed by its ticket so the next responder finds it. Use when investigating pipeline/service failures, running on-call, or building institutional memory of outages. A specialization of rag-research for the incident domain. Requires the rag MCP server.",
+      "roles": [
+        "consultant",
+        "data-engineer",
+        "platform-engineer"
+      ],
+      "requires_mcp": [
+        "rag"
+      ],
+      "path": "skills/rag-incident-memory",
       "models": [
         "claude",
         "gemini"

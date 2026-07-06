@@ -5,8 +5,10 @@ description: >-
   Local embeddings by default — no API key required.
 command: uvx
 args:
+  # The `[server]` extra pulls the MCP runtime deps (mcp, python-dotenv). The base package is
+  # engine-only so embedded/library consumers can install it without `mcp` — see mcp_rag/SETUP.md.
   - --from
-  - git+https://github.com/Qbizinc/qbiz-agents.git#subdirectory=mcp/mcp_rag
+  - qbiz-rag-mcp[server] @ git+https://github.com/Qbizinc/qbiz-agents.git#subdirectory=mcp/mcp_rag
   - rag-mcp
 env:
   # Where the index + ledger persist. Per-project by default.

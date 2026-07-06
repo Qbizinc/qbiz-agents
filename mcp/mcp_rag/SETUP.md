@@ -40,6 +40,31 @@ By default the index and ledger persist to `.rag/` in your project root:
 Add `.rag/` to your `.gitignore` unless you intend to commit the index. Point `RAG_DATA_DIR` at a
 shared path to reuse one index across projects.
 
+## Using the engine as a library (embedded, no MCP)
+
+The base package is **engine-only** — you can ingest and search directly from Python without the
+MCP server or the `mcp` dependency. This is the path for embedding RAG inside another system (e.g.
+an Airflow task):
+
+```bash
+# Base install pulls only the engine deps (numpy, fastembed) — no `mcp`.
+pip install 'qbiz-rag-mcp @ git+https://github.com/Qbizinc/qbiz-agents.git#subdirectory=mcp/mcp_rag'
+```
+
+```python
+import os
+os.environ["RAG_DATA_DIR"] = "/some/persistent/path"   # config is read from the environment
+from rag_mcp.index import get_index
+
+get_index().ingest(text=record, title=ticket_key, tags=["incident", dag_id, "open"])
+hits = get_index().search(f"{dag_id} {symptom}", tags=["incident", dag_id])
+```
+
+The engine reads all configuration from environment variables (`RAG_DATA_DIR`, `RAG_EMBED_BACKEND`,
+`RAG_CHUNK_SIZE`, …) — set them before the first `get_index()` call. To run the **MCP server**
+instead, install the server extra: `pip install 'qbiz-rag-mcp[server]'` (this is what `mcp.yaml`
+and `qba agent mcp add rag` do for you).
+
 ## Using a hosted embedding backend (optional)
 
 To use Google Gemini embeddings instead of the local model:

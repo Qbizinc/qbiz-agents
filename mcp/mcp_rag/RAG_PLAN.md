@@ -118,6 +118,21 @@ the source.
 ```
 Per-project by default, so two projects don't share an index. Override with `RAG_DATA_DIR`.
 
+### Packaging — engine-only base, server as an extra (`pyproject.toml`)
+
+The engine (`index` / `store` / `embeddings` / `ingest` / `ledger` / `config`) imports only
+`numpy` + `fastembed`; `mcp` and `python-dotenv` live solely in the server layer (`_app` / `server`
+/ `tools`). So the base install carries **no MCP dependency**:
+
+- `pip install qbiz-rag-mcp` → engine only. An embedded consumer does `from rag_mcp.index import
+  get_index` and ingests/searches directly (e.g. an Airflow task — this is what the
+  novamart-pipelines incident-memory integration uses).
+- `pip install 'qbiz-rag-mcp[server]'` → adds `mcp` + `python-dotenv` and the `rag-mcp` entry
+  point. This is what `mcp.yaml` / `qba agent mcp add rag` install.
+
+(Extras can only *add* dependencies, so making the base engine-only is the only way to let a library
+consumer avoid `mcp` — hence server-as-extra rather than an "engine" subset.)
+
 ---
 
 ## Configuration (env, surfaced in `mcp.yaml`)
@@ -141,7 +156,9 @@ Per-project by default, so two projects don't share an index. Override with `RAG
 - **Phase 2 — Loaders.** Broaden `ingest.py`: PDF (`pypdf`), HTML cleanup, directory/glob ingest,
   basic CSV/JSON handling.
 - **Phase 3 — Scale swap.** Provide an alternative `store.py` backed by LanceDB or pgvector behind
-  the same interface; document the one-line switch.
+  the same interface; document the env-selected switch. Design for the pgvector backend (including
+  the ledger-must-also-move subtlety and an env-selected `get_store` factory) is written up in
+  [`PGVECTOR_STORE_PLAN.md`](./PGVECTOR_STORE_PLAN.md) — planned, not yet built.
 - **Phase 4 — Specialization examples.** Ship one forked skill (e.g. `rag-contracts`) as a worked
   example of the template path, plus a bundle entry.
 

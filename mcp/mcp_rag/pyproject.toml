@@ -3,14 +3,21 @@ name = "qbiz-rag-mcp"
 version = "0.1.0"
 description = "Baseline Indexed RAG MCP server for Qbiz agents — ingest documents, keep a vector index and a ledger of what's been read."
 requires-python = ">=3.11"
+# Base install is the **engine only** — enough to `from rag_mcp.index import get_index`
+# and embed/search as a library, with no MCP dependency. This is what an embedded consumer
+# (e.g. an Airflow task) installs. The MCP server itself lives behind the `server` extra.
 dependencies = [
-    "mcp>=1.0.0",
-    "python-dotenv>=1.0.0",
     "numpy>=1.26",
     "fastembed>=0.3.0",
 ]
 
 [project.optional-dependencies]
+# The MCP server (the `rag-mcp` entry point). Required to run the server; NOT required to
+# use the engine as a library. Keeps `mcp` out of the base install for embedded consumers.
+server = [
+    "mcp>=1.0.0",
+    "python-dotenv>=1.0.0",
+]
 # Hosted embedding backend example (RAG_EMBED_BACKEND=gemini).
 gemini = ["google-generativeai>=0.7.0"]
 
