@@ -1,0 +1,8 @@
+# Persisted index + ledger (per-project RAG data)
+.rag/
+
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/

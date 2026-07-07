@@ -53,6 +53,40 @@
       ]
     },
     {
+      "name": "rag-incident-memory",
+      "description": "Give an incident-response agent a persistent memory of past incidents and the tickets they opened, using the rag MCP server. Before diagnosing a failure, recall prior similar incidents on the same system to detect recurrence; after resolving one, record a structured incident report keyed by its ticket so the next responder finds it. Use when investigating pipeline/service failures, running on-call, or building institutional memory of outages. A specialization of rag-research for the incident domain. Requires the rag MCP server.",
+      "roles": [
+        "consultant",
+        "data-engineer",
+        "platform-engineer"
+      ],
+      "requires_mcp": [
+        "rag"
+      ],
+      "path": "skills/rag-incident-memory",
+      "models": [
+        "claude",
+        "gemini"
+      ]
+    },
+    {
+      "name": "rag-research",
+      "description": "Ground answers in a document corpus using the rag MCP server. Ingest files, URLs, or text; semantically search the index; and keep a ledger of what's been read and where it lives. Use when the user wants answers grounded in their own documents, wants to build up a searchable knowledge base, or asks \"what have I ingested so far\". Also the starting template for a specialized RAG (contracts, tickets, a client's docs). Requires the rag MCP server.",
+      "roles": [
+        "consultant",
+        "data-engineer",
+        "analyst"
+      ],
+      "requires_mcp": [
+        "rag"
+      ],
+      "path": "skills/rag-research",
+      "models": [
+        "claude",
+        "gemini"
+      ]
+    },
+    {
       "name": "slack-bot-setup",
       "description": "Set up, configure, and use the Slack MCP server for agent communication \u2014 posting, threading, file uploads, and human-in-the-loop (HITL) approval gates. Use when an agent needs to talk to Slack, or when standing up a new Slack bot for a workspace or client (the QBiz bot is the reference template). Requires the slack MCP server.",
       "roles": [
