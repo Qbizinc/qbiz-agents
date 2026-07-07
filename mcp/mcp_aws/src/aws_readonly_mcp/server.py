@@ -41,7 +41,12 @@ def _err(action: str, exc: Exception) -> str:
 
 
 def _paginate(client, op: str, result_key: str, max_items: int, **kwargs) -> list:
-    """Collect up to ``max_items`` results from a paginated operation."""
+    """Collect up to ``max_items`` results from a paginated operation.
+
+    ``max_items`` is falsy-checked, so ``0`` (used internally to mean
+    "no cap") returns every result rather than zero. Only pass ``0`` when
+    that is the intended behavior.
+    """
     items: list = []
     paginator = client.get_paginator(op)
     page_cfg = {"MaxItems": max_items} if max_items else {}
@@ -451,11 +456,14 @@ def iam_get_policy(policy_arn: str) -> str:
 def iam_get_policy_document(policy_arn: str, version_id: str = "") -> str:
     """Get the JSON policy document for a managed policy. If version_id is
     omitted, the default version is used."""
-    try:
-        client = manager.client("iam")
-        if not version_id:
+    client = manager.client("iam")
+    if not version_id:
+        try:
             meta = client.get_policy(PolicyArn=policy_arn)
-            version_id = meta["Policy"]["DefaultVersionId"]
+        except Exception as exc:  # noqa: BLE001
+            return _err("iam:GetPolicy", exc)
+        version_id = meta["Policy"]["DefaultVersionId"]
+    try:
         resp = client.get_policy_version(PolicyArn=policy_arn, VersionId=version_id)
         version = resp.get("PolicyVersion", {})
         return _ok(

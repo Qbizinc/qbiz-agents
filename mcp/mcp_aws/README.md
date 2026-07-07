@@ -66,7 +66,7 @@ aws iam put-role-policy \
 ```bash
 cd aws-readonly-mcp
 python -m venv .venv && source .venv/bin/activate
-pip install -e .          # or: pip install -r requirements.txt
+pip install -e .
 ```
 
 Requires Python 3.10+.

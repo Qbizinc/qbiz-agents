@@ -14,10 +14,9 @@ variable "trusted_principal_arns" {
   description = <<-EOT
     IAM principal ARNs allowed to assume the role (the identity whose base
     credentials the MCP server uses to call sts:AssumeRole). Example:
-    ["arn:aws:iam::123456789012:user/soren"].
+    ["arn:aws:iam::123456789012:user/your-name"].
   EOT
   type        = list(string)
-  default     = [ "arn:aws:iam::907770664110:user/soren" ]
 
   validation {
     condition     = length(var.trusted_principal_arns) > 0

@@ -27,13 +27,12 @@ pytestmark = pytest.mark.skipif(
 # S3
 # ---------------------------------------------------------------------------
 class TestS3Functional:
-    def test_list_buckets_contains_qbiz_users(self):
+    def test_list_buckets_returns_valid_shape(self):
         from aws_readonly_mcp.server import s3_list_buckets
 
         result = json.loads(s3_list_buckets())
 
         assert "buckets" in result, f"Unexpected response shape: {result}"
-        names = [b["name"] for b in result["buckets"]]
-        assert "qbiz-users" in names, (
-            f"Expected bucket 'qbiz-users' not found. Buckets returned: {names}"
-        )
+        assert result["count"] == len(result["buckets"])
+        for bucket in result["buckets"]:
+            assert "name" in bucket and "creation_date" in bucket

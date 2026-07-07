@@ -1,0 +1,37 @@
+name: aws
+description: Read-only AWS integration for agents. List/describe/get access to S3, Redshift, and IAM via STS AssumeRole into a scoped read-only role. No mutating AWS call is ever made.
+
+command: uvx
+args:
+  - --from
+  - git+https://github.com/Qbizinc/qbiz-agents.git#subdirectory=mcp/mcp_aws
+  - aws-readonly-mcp
+
+env:
+  AWS_READONLY_ROLE_ARN: ""
+  AWS_READONLY_EXTERNAL_ID: ""
+  AWS_READONLY_SESSION_NAME: "aws-readonly-mcp"
+  AWS_READONLY_REGION: ""
+  AWS_READONLY_DURATION: "3600"
+  AWS_PROFILE: ""
+
+tools:
+  - whoami
+  - s3_list_buckets
+  - s3_get_bucket_location
+  - s3_list_objects
+  - s3_get_object_metadata
+  - s3_get_bucket_policy
+  - s3_get_bucket_encryption
+  - redshift_describe_clusters
+  - redshift_describe_cluster
+  - redshift_describe_cluster_snapshots
+  - redshift_serverless_list_namespaces
+  - redshift_serverless_list_workgroups
+  - iam_list_roles
+  - iam_get_role
+  - iam_list_role_policies
+  - iam_get_role_inline_policy
+  - iam_list_policies
+  - iam_get_policy
+  - iam_get_policy_document

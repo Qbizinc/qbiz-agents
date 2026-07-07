@@ -85,7 +85,11 @@ class SessionManager:
         cfg = self._load_config()
         self._default_region = cfg["region"]
 
-        # Base botocore session sources the credentials used to AssumeRole.
+        # Single botocore session: sources the base credentials used to
+        # AssumeRole, then has its credentials swapped for the assumed-role
+        # ones. Reusing one session (rather than building a second one for
+        # the returned boto3.Session) ensures profile-derived config (region,
+        # S3 addressing style, retries, etc.) isn't silently dropped.
         base = _get_botocore_session()
         if cfg["profile"]:
             base.set_config_variable("profile", cfg["profile"])
@@ -105,12 +109,11 @@ class SessionManager:
             refresh_using=refresher, method="sts-assume-role"
         )
 
-        botocore_sess = _get_botocore_session()
-        botocore_sess._credentials = creds
+        base._credentials = creds
         if cfg["region"]:
-            botocore_sess.set_config_variable("region", cfg["region"])
+            base.set_config_variable("region", cfg["region"])
 
-        return boto3.Session(botocore_session=botocore_sess)
+        return boto3.Session(botocore_session=base)
 
     def session(self) -> boto3.Session:
         with self._lock:
@@ -120,9 +123,10 @@ class SessionManager:
 
     # -- clients -----------------------------------------------------------
     def client(self, service: str, region: str | None = None):
-        region = region or self._default_region
-        key = (service, region)
         with self._lock:
+            self.session()  # ensures _default_region is populated before use
+            region = region or self._default_region
+            key = (service, region)
             if key not in self._clients:
                 self._clients[key] = self.session().client(
                     service, region_name=region
