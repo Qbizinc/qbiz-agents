@@ -80,6 +80,30 @@ To use Google Gemini embeddings instead of the local model:
 If you switch backends/models on an existing index, clear `RAG_DATA_DIR` first — vector dimensions
 must match.
 
+## ⚠️ Security note: `ingest` has no source restriction
+
+`ingest(source=...)` will read **any local file path or URL it's given** — there is currently no
+restriction to a project directory, and no block on internal/private URLs (e.g. a cloud metadata
+endpoint). This means:
+
+- If the agent is ever tricked (via indirect prompt injection — hidden instructions inside a
+  webpage, PDF, or document you ask it to ingest) into calling `ingest` on a sensitive local path
+  (`~/.ssh/id_rsa`, `.env`, `.mcp.json`, cloud credential files, etc.), that file's contents are
+  read and persisted **in plaintext** into `chunks.jsonl`, and become retrievable via `search`.
+- The same applies to internal-only URLs if this server runs where such URLs are reachable (e.g.
+  embedded in a cloud worker, where a fetch to `http://169.254.169.254/...` could reach the cloud
+  provider's instance-metadata service).
+
+**Practical guidance until this is hardened:**
+- Only `ingest` files/URLs you trust the *provenance* of, not just ones that look benign — a
+  completely normal-looking PDF or webpage can carry hidden injected text.
+- Don't run this server in the same environment as files/secrets you wouldn't want made searchable
+  (e.g. avoid running it in a directory containing `.mcp.json`, `.env`, or cloud credential files
+  unless you've confirmed nothing sensitive would ever be ingested).
+- If you need this hardened (e.g. restrict `ingest` to a specific directory, or block private/
+  link-local URL targets) before using this in an environment with real credentials nearby, raise it
+  as a follow-up rather than assuming it's already handled — it isn't yet.
+
 ## Skipping the approval prompt (optional)
 
 By default, Claude Code asks you to approve the MCP server once per session. To skip this, add to
