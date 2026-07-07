@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "generated_at": "2026-06-11",
+  "generated_at": "2026-07-06",
   "skills": [
     {
       "name": "airflow-pipeline-doctor",
@@ -13,6 +13,23 @@
         "astro-airflow"
       ],
       "path": "skills/airflow-pipeline-doctor",
+      "models": [
+        "claude",
+        "gemini"
+      ]
+    },
+    {
+      "name": "aws-readonly-explorer",
+      "description": "Use when inspecting AWS infrastructure read-only \u2014 listing/describing S3 buckets and objects, Redshift clusters and snapshots, or auditing IAM roles and policies. Use for infra discovery, security/permissions audits, and diagnosing \"what does this role/bucket/cluster actually look like\" questions. Requires the aws MCP server. Never performs a mutating AWS call.",
+      "roles": [
+        "platform-engineer",
+        "data-engineer",
+        "security-engineer"
+      ],
+      "requires_mcp": [
+        "aws"
+      ],
+      "path": "skills/aws-readonly-explorer",
       "models": [
         "claude",
         "gemini"
