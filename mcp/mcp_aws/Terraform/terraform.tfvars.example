@@ -1,0 +1,10 @@
+# Copy to terraform.tfvars and edit before running `terraform apply`.
+# terraform.tfvars is gitignored — never commit real account IDs/ARNs here.
+
+region = "us-east-1"
+
+# The identity (yours, or a CI role) that will call sts:AssumeRole into the
+# read-only role this module creates. Replace with your own account/user ARN.
+trusted_principal_arns = ["arn:aws:iam::123456789012:user/your-name"]
+
+external_id = "aws-readonly-mcp"
