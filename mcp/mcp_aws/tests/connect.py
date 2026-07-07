@@ -1,6 +1,6 @@
 import logging
-import aws_session
-from aws_session import *
+
+from aws_readonly_mcp.aws_session import SessionManager
 
 # Uncomment the level you need:
 # logging.basicConfig(level=logging.DEBUG)   # everything — very verbose
@@ -9,7 +9,7 @@ logging.basicConfig(level=logging.INFO)      # just high-level request info
 # logging.getLogger("urllib3").setLevel(logging.DEBUG)
 
 print("[1] Building SessionManager...")
-manager = aws_session.SessionManager()
+manager = SessionManager()
 
 print("[2] Calling whoami (sts:GetCallerIdentity) to test AssumeRole...")
 try:

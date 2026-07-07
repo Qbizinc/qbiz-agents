@@ -12,7 +12,7 @@ Creates the read-only IAM role and permissions policy the MCP server assumes.
 ## Use
 
 ```bash
-cd terraform
+cd Terraform
 cp terraform.tfvars.example terraform.tfvars   # then edit
 terraform init
 terraform plan

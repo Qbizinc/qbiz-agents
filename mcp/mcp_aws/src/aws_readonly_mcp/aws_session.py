@@ -94,7 +94,8 @@ class SessionManager:
         if cfg["profile"]:
             base.set_config_variable("profile", cfg["profile"])
 
-        sts = base.create_client("sts", region_name=cfg["region"])
+        sts_kwargs = {"region_name": cfg["region"]} if cfg["region"] else {}
+        sts = base.create_client("sts", **sts_kwargs)
 
         assume_kwargs = {
             "RoleArn": cfg["role_arn"],
@@ -128,9 +129,8 @@ class SessionManager:
             region = region or self._default_region
             key = (service, region)
             if key not in self._clients:
-                self._clients[key] = self.session().client(
-                    service, region_name=region
-                )
+                client_kwargs = {"region_name": region} if region else {}
+                self._clients[key] = self.session().client(service, **client_kwargs)
             return self._clients[key]
 
     def whoami(self) -> dict:
