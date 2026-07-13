@@ -14,5 +14,9 @@ You are working inside the Qbiz agents repository — the central source for all
 
 - When adding or modifying a skill, always update `skills-manifest.json` by running `python script/generate-skills-manifest`.
 - Every skill folder must contain `SKILL.md` and `OWNERS.yaml` at minimum.
-- Never hardcode credentials in any file.
+- Never hardcode credentials in any file — see `SECURITY.md` for the full policy. Tests
+  that need secret-shaped strings must assemble them at runtime (see
+  `assay/tests/conftest.py::planted_secret_line`), never as committed literals; the only
+  directory allowed to hold fake credential literals is `assay/demo/fixtures/` (allowlisted
+  in `.gitguardian.yaml`).
 - Skill instructions must be model-agnostic. Put model-specific behavior in `CLAUDE.md` or `GEMINI.md` sidecars.

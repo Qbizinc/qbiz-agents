@@ -1,0 +1,20 @@
+# GitGuardian / ggshield configuration for this repo.
+#
+# The secrets policy lives in SECURITY.md. Summary: real secrets never enter the repo
+# (env vars / .mcp.json / the client's secrets manager); test suites that need
+# secret-shaped strings assemble them at runtime (see assay/tests/conftest.py's
+# planted_secret_line) so nothing here trips a scanner.
+#
+# The ONE sanctioned exception is below: Assay's demo fixtures are a synthetic client
+# repo whose entire purpose is to contain fake hardcoded credentials for the credential
+# scanner to find. Values there must be obviously fake (EXAMPLE / hunter2 patterns) —
+# see assay/demo/fixtures/README.md before adding anything.
+#
+# Note: this file governs ggshield (the pre-commit hook and any CI scans). The
+# GitGuardian GitHub-app scan that comments on PRs is configured in the GitGuardian
+# dashboard — path exclusions must be mirrored there if the app ever flags a fixture.
+version: 2
+
+secret:
+  ignored_paths:
+    - "assay/demo/fixtures/**"

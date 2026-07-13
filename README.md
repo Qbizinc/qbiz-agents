@@ -40,6 +40,16 @@ qbiz-agents/
 
 ---
 
+## Secrets
+
+Real credentials never enter this repo — env vars / `.mcp.json` locally, the client's
+secrets manager on engagements. Enforced by GitGuardian on every PR and by a ggshield
+pre-commit hook locally; contributors should run the one-time setup in
+[SECURITY.md](SECURITY.md), which also covers how test suites plant *fake* credentials
+without tripping the scanners.
+
+---
+
 ## How others use this
 
 ### 1. Install the CLI

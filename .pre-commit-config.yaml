@@ -1,0 +1,17 @@
+# Pre-commit hooks — currently just the secret-scanning gate, which catches hardcoded
+# credentials before they leave a consultant's machine (the same engine as the
+# GitGuardian PR scan, so passing locally means passing in the PR).
+#
+# One-time setup per consultant:
+#   pip install pre-commit
+#   pre-commit install
+#   ggshield auth login          # or export GITGUARDIAN_API_KEY=<personal access token>
+#
+# Policy, rationale, and what to do when the hook fires: SECURITY.md
+repos:
+  - repo: https://github.com/gitguardian/ggshield
+    rev: v1.52.2
+    hooks:
+      - id: ggshield
+        language_version: python3
+        stages: [pre-commit]
