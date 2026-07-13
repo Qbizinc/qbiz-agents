@@ -1,0 +1,95 @@
+{
+  "metadata": {
+    "project_name": "acme_analytics",
+    "dbt_version": "1.7.10"
+  },
+  "nodes": {
+    "model.acme.stg_orders": {
+      "resource_type": "model",
+      "name": "stg_orders",
+      "description": "Staged orders from the raw orders feed, one row per order.",
+      "columns": {
+        "order_id": {"description": "Primary key."},
+        "customer_id": {"description": ""}
+      },
+      "config": {"meta": {}}
+    },
+    "model.acme.stg_customers": {
+      "resource_type": "model",
+      "name": "stg_customers",
+      "description": "",
+      "columns": {
+        "customer_id": {},
+        "email": {}
+      },
+      "config": {"meta": {}}
+    },
+    "model.acme.stg_payments": {
+      "resource_type": "model",
+      "name": "stg_payments",
+      "description": "",
+      "columns": {
+        "payment_id": {},
+        "card_last_four": {}
+      },
+      "config": {"meta": {}}
+    },
+    "model.acme.dim_customers": {
+      "resource_type": "model",
+      "name": "dim_customers",
+      "description": "Customer dimension with contact details.",
+      "columns": {
+        "customer_id": {"description": "Primary key."},
+        "email": {"description": "Customer email (PII).", "meta": {"sensitivity": "restricted"}}
+      },
+      "config": {"meta": {"sensitivity": "restricted"}}
+    },
+    "model.acme.fct_orders": {
+      "resource_type": "model",
+      "name": "fct_orders",
+      "description": "",
+      "columns": {
+        "order_id": {},
+        "order_total": {}
+      },
+      "config": {"meta": {}}
+    },
+    "model.acme.rpt_daily_revenue": {
+      "resource_type": "model",
+      "name": "rpt_daily_revenue",
+      "description": "",
+      "columns": {
+        "revenue_date": {},
+        "revenue": {}
+      },
+      "config": {"meta": {}}
+    },
+    "test.acme.unique_stg_orders_order_id": {
+      "resource_type": "test",
+      "name": "unique_stg_orders_order_id",
+      "depends_on": {"nodes": ["model.acme.stg_orders"]}
+    },
+    "test.acme.not_null_stg_orders_order_id": {
+      "resource_type": "test",
+      "name": "not_null_stg_orders_order_id",
+      "depends_on": {"nodes": ["model.acme.stg_orders"]}
+    },
+    "test.acme.unique_dim_customers_customer_id": {
+      "resource_type": "test",
+      "name": "unique_dim_customers_customer_id",
+      "depends_on": {"nodes": ["model.acme.dim_customers"]}
+    }
+  },
+  "sources": {
+    "source.acme.raw.orders": {
+      "resource_type": "source",
+      "name": "orders",
+      "freshness": {"warn_after": {"count": 12, "period": "hour"}, "error_after": {"count": 24, "period": "hour"}}
+    },
+    "source.acme.raw.customers": {
+      "resource_type": "source",
+      "name": "customers",
+      "freshness": null
+    }
+  }
+}

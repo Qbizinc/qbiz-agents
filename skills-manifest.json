@@ -1,7 +1,22 @@
 {
   "version": "1",
-  "generated_at": "2026-07-06",
+  "generated_at": "2026-07-13",
   "skills": [
+    {
+      "name": "agent-harness",
+      "description": "Wrap a Qbiz agent's consequential actions in the qbiz_harness package's code-enforced controls \u2014 cost/action caps, output validation, loop/retry guards, HITL approval gates, and an audit trail. Use whenever you are building, extending, or reviewing an agent or tool in this repo that spends tokens/money, calls tools, or takes an irreversible action. Requires the qbiz-agent-harness package (no MCP server).",
+      "roles": [
+        "consultant",
+        "data-engineer",
+        "platform-engineer"
+      ],
+      "requires_mcp": [],
+      "path": "skills/agent-harness",
+      "models": [
+        "claude",
+        "gemini"
+      ]
+    },
     {
       "name": "airflow-pipeline-doctor",
       "description": "Identifies broken Airflow pipelines by scanning DAG run failures, surfacing failed task instances, and retrieving logs to explain the root cause. Requires the astro-airflow-mcp MCP server to be connected.",
