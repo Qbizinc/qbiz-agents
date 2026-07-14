@@ -11,6 +11,8 @@ import pytest
 from qbiz_assay.collectors.ai_usage import collect
 from qbiz_assay.findings import Dimension, Severity
 
+from conftest import planted_secret_line
+
 
 class TestAiUsageCollectorAgainstAcmeFixture:
     """Test against the acme repo fixture (with dbt, dags, and ml directories)."""
@@ -136,7 +138,7 @@ from google.generativeai import client
     def test_hardcoded_password_in_string(self, tmp_path: Path):
         """Hardcoded password string matching regex is detected."""
         file_with_cred = tmp_path / "script.py"
-        file_with_cred.write_text('password = "EXAMPLE-PLACEHOLDER-0000"')
+        file_with_cred.write_text(planted_secret_line("password"))
         result = collect(tmp_path)
         assert result.stats["files_with_hardcoded_credentials"] == 1
         cred_findings = [f for f in result.findings if f.severity == Severity.CRITICAL]
@@ -145,21 +147,21 @@ from google.generativeai import client
     def test_hardcoded_api_key_in_string(self, tmp_path: Path):
         """Hardcoded API key string is detected."""
         file_with_key = tmp_path / "config.py"
-        file_with_key.write_text('api_key = "sk-EXAMPLE0000EXAMPLE0000"')
+        file_with_key.write_text(planted_secret_line("api_key", "sk-" + "fake0" * 4))
         result = collect(tmp_path)
         assert result.stats["files_with_hardcoded_credentials"] == 1
 
     def test_hardcoded_auth_token(self, tmp_path: Path):
         """Hardcoded auth_token is detected."""
         file_with_token = tmp_path / "auth.py"
-        file_with_token.write_text('auth_token = "EXAMPLE-PLACEHOLDER-TOKEN-0000"')
+        file_with_token.write_text(planted_secret_line("auth_token"))
         result = collect(tmp_path)
         assert result.stats["files_with_hardcoded_credentials"] == 1
 
     def test_short_secrets_ignored(self, tmp_path: Path):
         """Secrets shorter than 8 characters are not flagged."""
         file_with_short = tmp_path / "test.py"
-        file_with_short.write_text('password = "short"')
+        file_with_short.write_text(planted_secret_line("password", "short"))
         result = collect(tmp_path)
         assert result.stats["files_with_hardcoded_credentials"] == 0
 
@@ -167,7 +169,7 @@ from google.generativeai import client
         """At most 5 credential findings are reported (even if more files have them)."""
         # Create 10 files with credentials
         for i in range(10):
-            (tmp_path / f"file{i}.py").write_text(f'api_key = "secret_key_{i:020d}"')
+            (tmp_path / f"file{i}.py").write_text(planted_secret_line("api_key", f"fake-key-{i:020d}"))
 
         result = collect(tmp_path)
         cred_findings = [f for f in result.findings if f.severity == Severity.CRITICAL]
