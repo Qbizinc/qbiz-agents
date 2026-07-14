@@ -1,0 +1,67 @@
+# Qbiz baseline assessment config — the default rubric and offering catalog.
+#
+# This file is a registry, not documentation: the engine, rubric, and report iterate what is
+# defined here. An engagement profile may override any of it (client standards beat the Qbiz
+# default) — see docs/EXTENDING.md.
+#
+# [A3] CALIBRATION NOTE: severity weights, bands, and dimension weights below are sensible
+# defaults, not calibrated against real engagements yet. Do not quote a score externally
+# until [A3] is closed.
+
+rubric:
+  # Points deducted from a dimension's score (out of 100) per finding of each severity.
+  severity_weights:
+    critical: 40
+    high: 25
+    medium: 10
+    low: 4
+    info: 0
+
+  # (minimum score, band name), checked top-down.
+  bands:
+    - min: 85
+      name: Leading
+    - min: 70
+      name: Established
+    - min: 50
+      name: Developing
+    - min: 0
+      name: At Risk
+
+  # The readiness dimensions this rubric scores. `weight` is the dimension's share of the
+  # overall score (relative; they need not sum to anything). A collector may emit findings
+  # for a dimension not listed here — it is scored with weight 1.0 and its id as the title,
+  # because evidence trumps registration — but a real engagement should register it.
+  dimensions:
+    - id: data_quality
+      title: Data Quality & Testing
+      weight: 1.0
+    - id: documentation
+      title: Documentation & Discoverability
+      weight: 1.0
+    - id: governance
+      title: Governance & Data Sensitivity
+      weight: 1.0
+    - id: operations
+      title: Operational Maturity
+      weight: 1.0
+    - id: cost
+      title: Cost Efficiency
+      weight: 1.0
+    - id: ai_governance
+      title: AI Readiness & Governance
+      weight: 1.0
+
+# The remediation → engagement mapping. Findings carry an offering *id*; the report resolves
+# it here. Retitle or extend per engagement profile without touching collector code.
+offerings:
+  dbt_startup_kit:
+    title: Qbiz dbt Startup Kit
+  sensitivity_classification:
+    title: Data Sensitivity Classification
+  incident_agent:
+    title: Agentic Incident Response
+  agent_harness:
+    title: Qbiz Agent Harness
+  ai_advisory:
+    title: AI Readiness Advisory

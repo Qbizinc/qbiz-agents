@@ -5,7 +5,11 @@ description = "Data & AI readiness assessment agent — scans a client's data es
 requires-python = ">=3.11"
 dependencies = [
     "qbiz-agent-harness",
+    "pyyaml>=6.0",
 ]
+
+[project.scripts]
+qba = "qbiz_assay.cli:main"
 
 [build-system]
 requires = ["hatchling"]

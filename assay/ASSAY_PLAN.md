@@ -1,8 +1,9 @@
 # Assay — Data & AI Discovery Assessment Framework
 
 *Design doc & build plan. Status: Phase 1 scaffold built (2026-07-09); reframed from a
-single-purpose pre-sales tool to an extensible discovery framework (2026-07-13). Owner:
-David Sevier.*
+single-purpose pre-sales tool to an extensible discovery framework (2026-07-13); Phase 2
+framework core built (2026-07-14) — the "Phase 1 delta" notes in the seams below are
+resolved history. Owner: David Sevier.*
 
 ---
 
@@ -244,9 +245,18 @@ compounding flywheel — needs a real decision on the default and the generaliza
   collectors (dbt manifest, Airflow AST scan, repo AI-usage scan), six-dimension rubric,
   narrator Protocol with rule-based fallback, harness-governed engine, markdown report,
   narrated demo (`demo/assess_acme.py`), tests.
-- **Phase 2 — framework core (genericize before deepening):** everything in "The seams" that
-  Phase 1 lacks, *before* any new collector is written, so every later collector lands on the
-  plugin API instead of deepening the hardcoding:
+- **Phase 2 — framework core (genericize before deepening) — DONE 2026-07-14:** everything
+  in "The seams" that Phase 1 lacked, *before* any new collector was written, so every later
+  collector lands on the plugin API instead of deepening the hardcoding. Delivered as listed
+  below (config registries in `config/qbiz_baseline.yaml` + `config.py`; `@collector`
+  registry with acquisition modes and `requires_mcp`; evidence typing on `Finding`;
+  engagement profiles + `qba` CLI in `profile.py`/`cli.py`; `docs/EXTENDING.md` +
+  `collectors/TEMPLATE.py` + `tests/test_collector_TEMPLATE.py`). The acceptance test landed
+  as the real thing: `collectors/cloud_posture.py`, a connected-mode collector for the
+  out-of-list `cloud_posture` dimension calling the shared `aws` MCP server through an
+  injected tool caller (live MCP transport binding is Phase 3). [A3] deferred: baseline
+  weights/bands are the Phase 1 values, now in config, still uncalibrated. [A6] deferred:
+  documented as a placeholder in EXTENDING.md.
   - Dimension/rubric/offering registries + config loaders; Qbiz baseline shipped as the
     default config; overall score becomes dimension-weighted (weights in config).
   - `Collector` Protocol, registration decorator, discovery (`list-collectors`).

@@ -46,11 +46,10 @@ sys.path.insert(0, str(_ASSAY_ROOT.parent / "harness" / "src"))
 from qbiz_harness import AuditLog  # noqa: E402
 
 from qbiz_assay import (  # noqa: E402
-    DIMENSION_TITLES,
     AssessmentLimits,
-    Dimension,
     NarrationResult,
     RuleBasedNarrator,
+    baseline_config,
     render_markdown,
     run_assessment,
 )
@@ -173,16 +172,16 @@ def main() -> None:
     note(f"{len(findings)} findings — every one a parsed fact, not an opinion")
 
     # --- Scene 3 -------------------------------------------------------------------------------
-    scene("SCENE 3 — Scoring the rubric (arithmetic, not vibes)")
-    assessed: set[Dimension] = set()
+    scene("SCENE 3 — Scoring the rubric (arithmetic, not vibes; loaded from config)")
+    rubric = baseline_config().rubric
+    assessed: set[str] = set()
     for r in results:
         assessed |= r.dimensions
-    scores = score_dimensions(findings, assessed)
-    for dimension in Dimension:
-        score = scores[dimension]
+    scores = score_dimensions(findings, assessed, rubric)
+    for dimension, score in scores.items():
         shown = f"{score.score:>3}/100" if score.score is not None else "  —    "
-        print(f"    {DIMENSION_TITLES[dimension]:<34} {shown}  {score.band}")
-    print(f"    {'Overall':<34} {overall_score(scores):>3}/100")
+        print(f"    {rubric.title_for(dimension):<34} {shown}  {score.band}")
+    print(f"    {'Overall':<34} {overall_score(scores, rubric):>3}/100")
 
     # --- Scene 4 -------------------------------------------------------------------------------
     scene("SCENE 4 — Narration under the harness (watch the caps work)")

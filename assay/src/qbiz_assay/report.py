@@ -5,6 +5,11 @@ by the Qbiz offering that addresses them (ordered by how much risk each group re
 final section discloses how the assessment itself was governed — tokens, spend, interventions —
 because "this report was produced by an agent running under the same harness we sell" *is*
 the pitch, and it should be visible in the deliverable, not just the deck.
+
+The renderer is generic machinery: dimensions (and their order and titles) come from the
+assessment's rubric registry, offering titles from its catalog. Findings carry an evidence
+type; where a dimension's evidence is not purely parsed artifacts, the report says so — a
+score built on attestations must never look like a score built on scans.
 """
 
 from __future__ import annotations
@@ -12,21 +17,31 @@ from __future__ import annotations
 from datetime import date
 
 from qbiz_assay.engine import Assessment
-from qbiz_assay.findings import (
-    DIMENSION_TITLES,
-    SEVERITY_ORDER,
-    SEVERITY_WEIGHTS,
-    Dimension,
-    Finding,
-)
-from qbiz_assay.rubric import NOT_ASSESSED
+from qbiz_assay.findings import SEVERITY_ORDER, EvidenceType, Finding
 
 
 def _sorted_findings(findings: list[Finding]) -> list[Finding]:
     return sorted(findings, key=lambda f: SEVERITY_ORDER[f.severity])
 
 
+_EVIDENCE_LABELS: dict[EvidenceType, str] = {
+    EvidenceType.ARTIFACT: "parsed from shared artifacts",
+    EvidenceType.SYSTEM_OF_RECORD: "queried from the system of record",
+    EvidenceType.ATTESTATION: "attested in interviews (not independently verified)",
+}
+
+
+def _evidence_note(findings: list[Finding]) -> str | None:
+    """One line on where a dimension's evidence came from, when any of it wasn't parsed."""
+    kinds = {f.evidence for f in findings}
+    if not kinds or kinds == {EvidenceType.ARTIFACT}:
+        return None
+    labels = [_EVIDENCE_LABELS[k] for k in EvidenceType if k in kinds]
+    return f"_Evidence: {'; '.join(labels)}._"
+
+
 def render_markdown(assessment: Assessment, *, audit_path: str | None = None) -> str:
+    rubric = assessment.config.rubric
     lines: list[str] = []
     out = lines.append
 
@@ -43,14 +58,13 @@ def render_markdown(assessment: Assessment, *, audit_path: str | None = None) ->
     out("")
     out("| Dimension | Score | Band | Findings |")
     out("| --- | ---: | --- | ---: |")
-    for dim in Dimension:
-        score = assessment.scores[dim]
+    for dim, score in assessment.scores.items():
         shown = str(score.score) if score.score is not None else "—"
-        out(f"| {DIMENSION_TITLES[dim]} | {shown} | {score.band} | {len(score.findings)} |")
+        out(f"| {rubric.title_for(dim)} | {shown} | {score.band} | {len(score.findings)} |")
     overall = str(assessment.overall) if assessment.overall is not None else "—"
     out(f"| **Overall** | **{overall}** | | **{len(assessment.findings)}** |")
 
-    unassessed = [DIMENSION_TITLES[d] for d, s in assessment.scores.items() if not s.assessed]
+    unassessed = [rubric.title_for(d) for d, s in assessment.scores.items() if not s.assessed]
     if unassessed:
         out("")
         out(
@@ -65,16 +79,19 @@ def render_markdown(assessment: Assessment, *, audit_path: str | None = None) ->
     out(assessment.narratives.get("executive_summary", "_No narrative produced._"))
 
     # --- Per-dimension detail ------------------------------------------------------------------
-    for dim in Dimension:
-        score = assessment.scores[dim]
+    for dim, score in assessment.scores.items():
         if not score.assessed:
             continue
         out("")
-        out(f"## {DIMENSION_TITLES[dim]} — {score.score}/100 ({score.band})")
+        out(f"## {rubric.title_for(dim)} — {score.score}/100 ({score.band})")
         out("")
-        narrative = assessment.narratives.get(dim.value)
+        narrative = assessment.narratives.get(dim)
         if narrative:
             out(narrative)
+        note = _evidence_note(score.findings)
+        if note:
+            out("")
+            out(note)
         if score.findings:
             out("")
             out("| Severity | Finding | Where | Recommended remediation |")
@@ -95,11 +112,11 @@ def render_markdown(assessment: Assessment, *, audit_path: str | None = None) ->
         out("Findings grouped by the engagement that retires them, highest-risk group first.")
         ranked = sorted(
             by_offering.items(),
-            key=lambda kv: -sum(SEVERITY_WEIGHTS[f.severity] for f in kv[1]),
+            key=lambda kv: -sum(rubric.deduction_for(f.severity) for f in kv[1]),
         )
         for i, (offering, group) in enumerate(ranked, start=1):
             out("")
-            out(f"### {i}. {offering}")
+            out(f"### {i}. {assessment.config.offering_title(offering)}")
             for f in _sorted_findings(group):
                 out(f"- **{f.title}** — {f.remediation}")
 

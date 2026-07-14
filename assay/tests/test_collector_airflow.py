@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from qbiz_assay.collectors.airflow import collect
-from qbiz_assay.findings import Dimension, Severity
+from qbiz_assay.findings import Severity
 
 
 class TestAirflowCollectorAgainstAcmeFixture:
@@ -37,7 +37,7 @@ class TestAirflowCollectorAgainstAcmeFixture:
         high_findings = [f for f in orders_findings if f.severity == Severity.HIGH]
         assert len(high_findings) == 1
         assert "failure callback" in high_findings[0].title.lower()
-        assert high_findings[0].dimension == Dimension.OPERATIONS
+        assert high_findings[0].dimension == "operations"
 
         # MEDIUM: no retries and catchup
         medium_findings = [f for f in orders_findings if f.severity == Severity.MEDIUM]
@@ -47,7 +47,7 @@ class TestAirflowCollectorAgainstAcmeFixture:
         assert any("catchup" in t.lower() for t in medium_titles)
         # Both should be in OPERATIONS or COST
         for f in medium_findings:
-            assert f.dimension in {Dimension.OPERATIONS, Dimension.COST}
+            assert f.dimension in {"operations", "cost"}
 
         # LOW: no meaningful owner
         low_findings = [f for f in orders_findings if f.severity == Severity.LOW]
@@ -64,7 +64,7 @@ class TestAirflowCollectorAgainstAcmeFixture:
         assert len(export_findings) == 1
         assert "failure callback" in export_findings[0].title.lower()
         assert export_findings[0].severity == Severity.HIGH
-        assert export_findings[0].dimension == Dimension.OPERATIONS
+        assert export_findings[0].dimension == "operations"
 
     def test_acme_retries_do_not_produce_finding_when_set(self, acme_dags_dir: Path):
         """customer_export has retries=3, so no retries finding should be present."""
@@ -88,7 +88,7 @@ class TestAirflowCollectorAgainstAcmeFixture:
     def test_airflow_dimensions_assessed(self, acme_dags_dir: Path):
         """Airflow collector claims it assessed OPERATIONS and COST."""
         result = collect(acme_dags_dir)
-        assert result.dimensions == {Dimension.OPERATIONS, Dimension.COST}
+        assert result.dimensions == {"operations", "cost"}
 
 
 class TestAirflowCollectorErrorHandling:
@@ -104,7 +104,7 @@ class TestAirflowCollectorErrorHandling:
         finding = result.findings[0]
         assert finding.severity == Severity.LOW
         assert "Unparseable" in finding.title
-        assert finding.dimension == Dimension.OPERATIONS
+        assert finding.dimension == "operations"
         assert "broken.py" in finding.subject
 
     def test_empty_dags_directory(self, tmp_path: Path):
@@ -278,7 +278,7 @@ dag = DAG(
         catchup_findings = [f for f in result.findings if "catchup" in f.title.lower()]
         assert len(catchup_findings) == 1
         assert catchup_findings[0].severity == Severity.MEDIUM
-        assert catchup_findings[0].dimension == Dimension.COST
+        assert catchup_findings[0].dimension == "cost"
 
     def test_catchup_false_does_not_produce_finding(self, tmp_path: Path):
         """catchup=False does not produce a finding."""
