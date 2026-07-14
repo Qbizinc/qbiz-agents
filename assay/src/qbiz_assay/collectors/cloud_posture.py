@@ -75,8 +75,22 @@ def _allows_star_on_star(statement: dict[str, Any]) -> bool:
     )
 
 
+def _is_listing_shape(value: Any, *, wrapper_key: str) -> bool:
+    """A valid ``list_*`` response: a bare list, or ``{wrapper_key: [...]}``.
+
+    Anything else (an error payload, a bare string, ``None``, ...) is a malformed
+    response, not "zero items" — the caller must not silently treat it as empty.
+    """
+    if isinstance(value, list):
+        return True
+    return isinstance(value, dict) and isinstance(value.get(wrapper_key), list)
+
+
 def _bucket_names(listing: Any) -> list[str]:
-    """Accept either a plain name list or a list of ``{"name": ...}`` records."""
+    """Accept either a plain name list or a list of ``{"name": ...}`` records.
+
+    Caller must have already confirmed ``_is_listing_shape(listing, wrapper_key="buckets")``.
+    """
     if isinstance(listing, dict):
         listing = listing.get("buckets", [])
     names: list[str] = []
@@ -89,6 +103,7 @@ def _bucket_names(listing: Any) -> list[str]:
 
 
 def _policy_records(listing: Any) -> list[dict[str, Any]]:
+    """Caller must have already confirmed ``_is_listing_shape(listing, wrapper_key="policies")``."""
     if isinstance(listing, dict):
         listing = listing.get("policies", [])
     return [p for p in (listing if isinstance(listing, list) else []) if isinstance(p, dict)]
@@ -116,6 +131,9 @@ def collect(aws_call: AwsToolCaller) -> CollectorResult:
 
     # --- S3: public access and encryption ------------------------------------------------
     listing, ok = call("s3_list_buckets", {})
+    if ok and not _is_listing_shape(listing, wrapper_key="buckets"):
+        unchecked.append(f"s3_list_buckets({{}}): unexpected response shape: {listing!r}")
+        ok = False
     buckets = _bucket_names(listing) if ok else []
     for bucket in buckets[:_MAX_BUCKETS]:
         policy, ok = call("s3_get_bucket_policy", {"bucket": bucket})
@@ -163,6 +181,9 @@ def collect(aws_call: AwsToolCaller) -> CollectorResult:
 
     # --- IAM: over-broad customer-managed policies ----------------------------------------
     listing, ok = call("iam_list_policies", {"scope": "Local"})
+    if ok and not _is_listing_shape(listing, wrapper_key="policies"):
+        unchecked.append(f"iam_list_policies({{'scope': 'Local'}}): unexpected response shape: {listing!r}")
+        ok = False
     policies = _policy_records(listing) if ok else []
     star_policies = 0
     for record in policies[:_MAX_POLICIES]:

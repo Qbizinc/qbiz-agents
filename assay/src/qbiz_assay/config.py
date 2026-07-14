@@ -112,7 +112,9 @@ def _parse_dimension(entry: Mapping[str, Any]) -> DimensionSpec:
     )
 
 
-def _parse_severity_weights(raw: Mapping[str, Any]) -> dict[Severity, int]:
+def _parse_severity_weights(raw: Any) -> dict[Severity, int]:
+    if not isinstance(raw, Mapping):
+        raise ConfigError(f"rubric.severity_weights must be a mapping: got {raw!r}")
     weights: dict[Severity, int] = {}
     for key, value in raw.items():
         try:
@@ -135,7 +137,9 @@ def _parse_bands(raw: list[Any]) -> tuple[tuple[int, str], ...]:
     return tuple(bands)
 
 
-def _parse_offerings(raw: Mapping[str, Any]) -> dict[OfferingId, OfferingSpec]:
+def _parse_offerings(raw: Any) -> dict[OfferingId, OfferingSpec]:
+    if not isinstance(raw, Mapping):
+        raise ConfigError(f"offerings must be a mapping: got {raw!r}")
     offerings: dict[OfferingId, OfferingSpec] = {}
     for offering_id, entry in raw.items():
         entry = entry or {}
@@ -157,6 +161,8 @@ def parse_config(raw: Mapping[str, Any]) -> AssessmentConfig:
     for required in ("dimensions", "severity_weights", "bands"):
         if required not in rubric_raw:
             raise ConfigError(f"rubric.{required} is required")
+    if not isinstance(rubric_raw["dimensions"], list):
+        raise ConfigError(f"rubric.dimensions must be a list: got {rubric_raw['dimensions']!r}")
     rubric = RubricConfig(
         dimensions=tuple(_parse_dimension(d) for d in rubric_raw["dimensions"]),
         severity_weights=_parse_severity_weights(rubric_raw["severity_weights"]),
@@ -212,7 +218,10 @@ def apply_overrides(base: AssessmentConfig, overrides: Mapping[str, Any]) -> Ass
         bands = _parse_bands(rubric_raw["bands"])
 
     dimensions = list(rubric.dimensions)
-    for entry in rubric_raw.get("dimensions") or []:
+    dimensions_raw = rubric_raw.get("dimensions") or []
+    if not isinstance(dimensions_raw, list):
+        raise ConfigError(f"rubric.dimensions override must be a list: got {dimensions_raw!r}")
+    for entry in dimensions_raw:
         if not isinstance(entry, Mapping) or "id" not in entry:
             raise ConfigError(f"rubric.dimensions entries need an 'id': got {entry!r}")
         dim_id = str(entry["id"])

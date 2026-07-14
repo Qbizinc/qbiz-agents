@@ -86,6 +86,14 @@ def _parse_limits(raw: Mapping[str, Any]) -> AssessmentLimits:
     unknown = set(raw) - known
     if unknown:
         raise ProfileError(f"unknown limits field(s): {', '.join(sorted(unknown))}")
+    non_positive = {k: v for k, v in raw.items() if not isinstance(v, bool) and v <= 0}
+    if non_positive:
+        raise ProfileError(
+            f"limits field(s) must be positive, got: "
+            f"{', '.join(f'{k}={v!r}' for k, v in sorted(non_positive.items()))} "
+            "(a zero/negative cap trips the harness on the very first step, silently "
+            "producing an empty assessment instead of a clear error)"
+        )
     return AssessmentLimits(**{k: v for k, v in raw.items()})
 
 

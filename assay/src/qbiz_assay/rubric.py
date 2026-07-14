@@ -78,7 +78,13 @@ def overall_score(
         for dim, s in scores.items()
         if s.score is not None
     ]
-    total_weight = sum(w for _, w in weighted)
-    if not weighted or total_weight == 0:
+    if not weighted:
         return None
+    total_weight = sum(w for _, w in weighted)
+    if total_weight == 0:
+        # Something was assessed, but every assessed dimension is weighted at zero (a
+        # supported override for "score and report this, but don't let it move the
+        # overall"). Falling back to None here would render a real assessment as "Not
+        # assessed" — fall back to an unweighted mean instead.
+        return round(sum(score for score, _ in weighted) / len(weighted))
     return round(sum(score * w for score, w in weighted) / total_weight)
