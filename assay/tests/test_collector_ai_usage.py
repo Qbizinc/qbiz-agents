@@ -136,7 +136,7 @@ from google.generativeai import client
     def test_hardcoded_password_in_string(self, tmp_path: Path):
         """Hardcoded password string matching regex is detected."""
         file_with_cred = tmp_path / "script.py"
-        file_with_cred.write_text('password = "secretsecret123"')
+        file_with_cred.write_text('password = "EXAMPLE-PLACEHOLDER-0000"')
         result = collect(tmp_path)
         assert result.stats["files_with_hardcoded_credentials"] == 1
         cred_findings = [f for f in result.findings if f.severity == Severity.CRITICAL]
@@ -145,14 +145,14 @@ from google.generativeai import client
     def test_hardcoded_api_key_in_string(self, tmp_path: Path):
         """Hardcoded API key string is detected."""
         file_with_key = tmp_path / "config.py"
-        file_with_key.write_text('api_key = "sk-1234567890abcdef"')
+        file_with_key.write_text('api_key = "sk-EXAMPLE0000EXAMPLE0000"')
         result = collect(tmp_path)
         assert result.stats["files_with_hardcoded_credentials"] == 1
 
     def test_hardcoded_auth_token(self, tmp_path: Path):
         """Hardcoded auth_token is detected."""
         file_with_token = tmp_path / "auth.py"
-        file_with_token.write_text('auth_token = "token_1234567890_abcdef"')
+        file_with_token.write_text('auth_token = "EXAMPLE-PLACEHOLDER-TOKEN-0000"')
         result = collect(tmp_path)
         assert result.stats["files_with_hardcoded_credentials"] == 1
 
