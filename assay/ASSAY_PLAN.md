@@ -1,7 +1,8 @@
 # Assay — Data & AI Discovery Assessment Framework
 
 *Design doc & build plan. Status: Phase 1 scaffold built (2026-07-09); reframed from a
-single-purpose pre-sales tool to an extensible discovery framework (2026-07-13). Owner:
+single-purpose pre-sales tool to an extensible discovery framework (2026-07-13); corrected
+`mcp_aws` merge status after the branch stack landed on `master` (2026-07-14). Owner:
 David Sevier.*
 
 ---
@@ -194,36 +195,41 @@ does." This is the same one-way-dependency discipline `qbiz_harness` established
 every tool in the repo, not just the harness.
 
 **What this changes concretely in the phases below:** the DB Spend collector is a caller of
-the existing `snowflake` MCP; the Security collector is a caller of `mcp_aws` (already built,
-unmerged); AI Spend has no home yet, so it's a candidate *new* MCP server, not Assay code. See
-Phase 3.
+the existing `snowflake` MCP; the Security collector is a caller of `mcp_aws` (already built
+**and merged to `master`** — no branch to land, just a collector to write); AI Spend has no
+home yet, so it's a candidate *new* MCP server, not Assay code. See Phase 3.
 
 ### Worked example: a network security / cloud posture check
 
-Illustrates the rule above with something *already mostly real*, not hypothetical. A
-`network_security` (or broader `cloud_posture`) dimension is not on the collector list yet,
-but the tool it would need mostly already exists:
+Illustrates the rule above with something *already real*, not hypothetical — and, as of
+2026-07-14, real in a stronger sense than first written: `mcp_aws` merged to `master` on
+2026-07-07 (PR #7), before this framework reframe even started. A `network_security` (or
+broader `cloud_posture`) dimension is still not on the collector list, but the tool it needs
+is sitting there already:
 
-1. **Check for a shared tool first** (the step above) — `mcp_aws` (branch `AID-2-AWS_MCP`,
-   unmerged) is a read-only AWS MCP server already exposing `iam_list_roles`,
-   `iam_get_policy`, `s3_get_bucket_policy`, `s3_get_bucket_encryption`,
+1. **Check for a shared tool first** (the step above) — `mcp_aws` (server name `aws`,
+   `mcp/mcp_aws/`, merged to `master`) is a read-only AWS MCP server already exposing
+   `iam_list_roles`, `iam_get_policy`, `s3_get_bucket_policy`, `s3_get_bucket_encryption`,
    `redshift_describe_clusters`, and more, via an assumed least-privilege IAM role. That
    covers most of a first cloud-posture pass (public bucket exposure, over-broad IAM policies,
-   unencrypted storage) with **zero new external integration code**.
+   unencrypted storage) with **zero new external integration code and zero merge work** — the
+   `skills/aws-readonly-explorer/` skill already documents how an agent calls it, and is worth
+   reading before writing the collector even though it's a different consumer (agent vs.
+   collector) of the same server.
 2. **Dimension** — add `cloud_posture` (title, weights, band thresholds) to the rubric
    config. *Tier 0.*
-3. **Collector** — write `cloud_posture.py`: a connected-mode collector that calls the
-   `aws-readonly` MCP's tools, turns specific findings (a public bucket, an IAM policy with
+3. **Collector** — write `cloud_posture.py`: a connected-mode collector that calls the `aws`
+   MCP's tools, turns specific findings (a public bucket, an IAM policy with
    `"Resource": "*"`, unencrypted storage) into `Finding`s tagged `cloud_posture` with evidence
-   type `system-of-record`, declares `requires_mcp: [aws-readonly]`, registers itself. One
-   file, no new credentials to design — `mcp_aws`'s STS role-assumption pattern already
-   solves that. *Tier 1.*
+   type `system-of-record`, declares `requires_mcp: [aws]`, registers itself. One file, no new
+   credentials to design — `mcp_aws`'s STS role-assumption pattern already solves that. *Tier
+   1, and unblocked — nothing to land first.*
 4. **Offering** — map remediations to a "Cloud Security Review" entry in the offering
    catalog. *Tier 0.*
 5. **The gap that's left:** `mcp_aws` doesn't (yet) expose IAM password-policy, access-key
    age, or MFA-enforcement checks — classic posture signals. Per the rule above, that's an
    argument to **extend `mcp_aws`** with a couple more read-only IAM calls, not to reach for
-   `boto3` inside `qbiz_assay`. Filed as a note for whoever picks `mcp_aws` back up.
+   `boto3` inside `qbiz_assay`.
 
 Engine, rubric, and report never change — they iterate the registries. If step 3 turns out to
 need edits to core files, or to need cloud API code Assay doesn't already have a shared tool
@@ -264,10 +270,11 @@ compounding flywheel — needs a real decision on the default and the generaliza
     requires before it can run `QUERY_HISTORY`-style reads — coordinate with whoever owns that
     server rather than standing up a parallel Snowflake client). A BigQuery equivalent needs
     its own MCP server the same way, when a BigQuery client shows up.
-  - **Security / cloud posture** — a collector calling `mcp_aws` (branch `AID-2-AWS_MCP`,
-    unmerged: read-only IAM/S3/Redshift via an assumed role — see the worked example above).
-    Merge that branch as a prerequisite of this bullet. GCP/Azure equivalents don't exist yet;
-    treat each as its own future MCP server, not a bolt-on to `mcp_aws`.
+  - **Security / cloud posture** — a collector calling `mcp_aws` (server name `aws`: read-only
+    IAM/S3/Redshift via an assumed role, merged to `master` since 2026-07-07 — see the worked
+    example above). No merge prerequisite; this is a Tier-1 collector away from shipping.
+    GCP/Azure equivalents don't exist yet; treat each as its own future MCP server, not a
+    bolt-on to `mcp_aws`.
   - **AI Spend** (provider usage/billing attribution, corroborated against the Phase 1 repo
     scan) — **no shared tool exists for this anywhere in the repo.** Per the reuse rule, this
     is a candidate new `mcp/mcp_ai_billing/` (or per-provider) server, built *before* the
