@@ -1,0 +1,8 @@
+# Demo artifacts — regenerated on every run of demo/assess_acme.py
+demo/out/
+
+# Environments / caches
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
