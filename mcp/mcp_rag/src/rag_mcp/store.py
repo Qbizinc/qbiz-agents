@@ -83,14 +83,22 @@ class VectorStore:
             self._vectors = None
 
     def _persist(self) -> None:
+        # Write to temp files then rename, so a crash mid-write can't leave chunks.jsonl and
+        # vectors.npy disagreeing with each other (which _load() would otherwise discard).
         self._vectors_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._chunks_path.open("w", encoding="utf-8") as handle:
+        chunks_tmp = self._chunks_path.with_name(self._chunks_path.name + ".tmp")
+        with chunks_tmp.open("w", encoding="utf-8") as handle:
             for chunk in self._chunks:
                 handle.write(json.dumps(chunk.to_json(), ensure_ascii=False) + "\n")
+        chunks_tmp.replace(self._chunks_path)
+
         if self._vectors is None or len(self._vectors) == 0:
             self._vectors_path.unlink(missing_ok=True)
         else:
-            np.save(self._vectors_path, self._vectors)
+            # Name already ends in .npy so np.save won't append its own extension.
+            vectors_tmp = self._vectors_path.with_name(self._vectors_path.stem + ".tmp.npy")
+            np.save(vectors_tmp, self._vectors)
+            vectors_tmp.replace(self._vectors_path)
 
     # ---- mutation ----------------------------------------------------------
 

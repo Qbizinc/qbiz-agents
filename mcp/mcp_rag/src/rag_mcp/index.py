@@ -64,10 +64,12 @@ class RagIndex:
         if not chunks_text:
             raise ValueError("Source produced no chunks.")
 
+        # Embed before touching the store, so a failed embed (network/model error) leaves the
+        # prior copy intact instead of deleting it and never replacing it.
+        vectors = self.embedder.embed(chunks_text)
+
         # Replace any prior copy so re-ingest is idempotent.
         self._store.delete_by_source(ledger_key)
-
-        vectors = self.embedder.embed(chunks_text)
         chunk_objects = [
             Chunk(
                 id=f"{ledger_key}::{ordinal}",

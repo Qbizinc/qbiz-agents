@@ -164,7 +164,17 @@ def run_assessment(
     # --- Stage 1: deterministic collection (zero tokens) ---------------------------------
     results: list[CollectorResult] = []
     for name, run in collectors:
-        guard.tick()
+        try:
+            guard.tick()
+        except LoopLimitError as exc:
+            audit.record_intervention(
+                action=f"collect:{name}",
+                component="loop_guard",
+                prevented=str(exc),
+                reason="loop cap reached during collection; skipping remaining collectors",
+                **tags,
+            )
+            break
         try:
             governor.guard_redundant(f"collect:{name}")
         except BudgetExceededError as exc:
@@ -204,8 +214,8 @@ def run_assessment(
         if active is not fallback:
             try:
                 guard.tick()
-                governor.record_action("narrative_sections")
                 governor.pre_call(_estimate_tokens(context))
+                governor.record_action("narrative_sections")
             except (BudgetExceededError, LoopLimitError) as exc:
                 component = "loop_guard" if isinstance(exc, LoopLimitError) else "cost_governor"
                 audit.record_intervention(

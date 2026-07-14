@@ -79,10 +79,17 @@ def collect(manifest_path: Path | str) -> CollectorResult:
         )
         return result
 
-    nodes: dict = data.get("nodes", {})
+    # Defensive: a hand-edited or corrupted manifest can have a non-dict node/source value
+    # (e.g. `"nodes": {"model.x": null}`) even though the outer JSON parses fine. Skip those
+    # rather than crash on the chained .get() calls below.
+    nodes: dict = {
+        uid: n for uid, n in (data.get("nodes") or {}).items() if isinstance(n, dict)
+    }
     models = {uid: n for uid, n in nodes.items() if n.get("resource_type") == "model"}
     tests = [n for n in nodes.values() if n.get("resource_type") == "test"]
-    sources: dict = data.get("sources", {})
+    sources: dict = {
+        uid: s for uid, s in (data.get("sources") or {}).items() if isinstance(s, dict)
+    }
 
     tested: set[str] = set()
     for test in tests:
