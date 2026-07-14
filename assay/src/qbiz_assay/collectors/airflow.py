@@ -14,16 +14,13 @@ import ast
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from qbiz_assay.collectors import CollectorResult
-from qbiz_assay.findings import (
-    OFFERING_INCIDENT_AGENT,
-    OFFERING_STARTUP_KIT,
-    Dimension,
-    Finding,
-    Severity,
-)
+from qbiz_assay.collectors import AcquisitionMode, CollectorResult, collector
+from qbiz_assay.findings import Finding, Severity
 
-_DIMENSIONS = {Dimension.OPERATIONS, Dimension.COST}
+_DIMENSIONS = {"operations", "cost"}
+
+_OFFERING_STARTUP_KIT = "dbt_startup_kit"
+_OFFERING_INCIDENT_AGENT = "incident_agent"
 _SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache"}
 
 NAME = "airflow-dags"
@@ -127,6 +124,14 @@ def _scan_file(path: Path) -> list[_DagInfo]:
     return dags
 
 
+@collector(
+    name=NAME,
+    dimensions=_DIMENSIONS,
+    mode=AcquisitionMode.ARTIFACT,
+    inputs={"dags_dir": "path to the client's Airflow DAG folder (scanned recursively)"},
+    description="Airflow incident-readiness basics by static AST scan (never imports DAG "
+    "code): retries, failure callbacks, ownership, unbounded catchup backfills.",
+)
 def collect(dags_dir: Path | str) -> CollectorResult:
     result = CollectorResult(name=NAME, dimensions=set(_DIMENSIONS))
     dags_dir = Path(dags_dir)
@@ -144,7 +149,7 @@ def collect(dags_dir: Path | str) -> CollectorResult:
         except (OSError, SyntaxError) as exc:
             result.findings.append(
                 Finding(
-                    dimension=Dimension.OPERATIONS,
+                    dimension="operations",
                     severity=Severity.LOW,
                     title=f"Unparseable DAG file: {path.name}",
                     detail=f"{exc}",
@@ -161,12 +166,12 @@ def collect(dags_dir: Path | str) -> CollectorResult:
         if "retries" not in dag.default_args or (isinstance(retries, int) and retries <= 0):
             result.findings.append(
                 Finding(
-                    dimension=Dimension.OPERATIONS,
+                    dimension="operations",
                     severity=Severity.MEDIUM,
                     title=f"DAG `{dag.dag_id}` has no retries configured",
                     detail=f"({rel}) A transient blip becomes a hard failure and a human page.",
                     remediation="Set `retries` (with backoff) in default_args.",
-                    offering=OFFERING_STARTUP_KIT,
+                    offering=_OFFERING_STARTUP_KIT,
                     subject=dag.dag_id,
                 )
             )
@@ -175,7 +180,7 @@ def collect(dags_dir: Path | str) -> CollectorResult:
             no_callback += 1
             result.findings.append(
                 Finding(
-                    dimension=Dimension.OPERATIONS,
+                    dimension="operations",
                     severity=Severity.HIGH,
                     title=f"DAG `{dag.dag_id}` has no failure callback — failures go nowhere",
                     detail=(
@@ -187,7 +192,7 @@ def collect(dags_dir: Path | str) -> CollectorResult:
                         "response investigates the failure, files the ticket, and notifies "
                         "on-call automatically."
                     ),
-                    offering=OFFERING_INCIDENT_AGENT,
+                    offering=_OFFERING_INCIDENT_AGENT,
                     subject=dag.dag_id,
                 )
             )
@@ -196,7 +201,7 @@ def collect(dags_dir: Path | str) -> CollectorResult:
         if not isinstance(owner, str) or owner.strip().lower() in ("", "airflow"):
             result.findings.append(
                 Finding(
-                    dimension=Dimension.OPERATIONS,
+                    dimension="operations",
                     severity=Severity.LOW,
                     title=f"DAG `{dag.dag_id}` has no meaningful owner",
                     detail=f"({rel}) owner is missing or the default 'airflow' — nobody is on the hook.",
@@ -208,7 +213,7 @@ def collect(dags_dir: Path | str) -> CollectorResult:
         if _const(dag.kwargs.get("catchup")) is True:
             result.findings.append(
                 Finding(
-                    dimension=Dimension.COST,
+                    dimension="cost",
                     severity=Severity.MEDIUM,
                     title=f"DAG `{dag.dag_id}` has catchup=True",
                     detail=(

@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from qbiz_assay.collectors.ai_usage import collect
-from qbiz_assay.findings import Dimension, Severity
+from qbiz_assay.findings import Severity
 
 from conftest import planted_secret_line
 
@@ -40,7 +40,7 @@ class TestAiUsageCollectorAgainstAcmeFixture:
         cred_findings = [f for f in result.findings if f.severity == Severity.CRITICAL]
         assert len(cred_findings) == 2
         # Both should be about hardcoded credentials in GOVERNANCE dimension
-        assert all(f.dimension == Dimension.GOVERNANCE for f in cred_findings)
+        assert all(f.dimension == "governance" for f in cred_findings)
         assert all("Hardcoded credential" in f.title for f in cred_findings)
 
     def test_acme_fixture_ungoverned_call_sites_finding(self, acme_repo_dir: Path):
@@ -52,7 +52,7 @@ class TestAiUsageCollectorAgainstAcmeFixture:
         ]
         assert len(ungoverned_findings) == 1
         assert ungoverned_findings[0].severity == Severity.HIGH
-        assert ungoverned_findings[0].dimension == Dimension.AI_GOVERNANCE
+        assert ungoverned_findings[0].dimension == "ai_governance"
 
     def test_acme_fixture_no_audit_trail_finding(self, acme_repo_dir: Path):
         """Acme has no governed call sites -> MEDIUM 'no audit trail' finding."""
@@ -63,12 +63,12 @@ class TestAiUsageCollectorAgainstAcmeFixture:
         ]
         assert len(audit_findings) == 1
         assert audit_findings[0].severity == Severity.MEDIUM
-        assert audit_findings[0].dimension == Dimension.AI_GOVERNANCE
+        assert audit_findings[0].dimension == "ai_governance"
 
     def test_acme_dimensions_assessed(self, acme_repo_dir: Path):
         """AI usage collector claims it assessed AI_GOVERNANCE and GOVERNANCE."""
         result = collect(acme_repo_dir)
-        assert result.dimensions == {Dimension.AI_GOVERNANCE, Dimension.GOVERNANCE}
+        assert result.dimensions == {"ai_governance", "governance"}
 
 
 class TestAiUsageCollectorEdgeCases:
@@ -81,7 +81,7 @@ class TestAiUsageCollectorEdgeCases:
         finding = result.findings[0]
         assert finding.severity == Severity.INFO
         assert "greenfield" in finding.title.lower()
-        assert finding.dimension == Dimension.AI_GOVERNANCE
+        assert finding.dimension == "ai_governance"
 
     def test_python_files_with_no_llm_imports(self, tmp_path: Path):
         """Python files with no LLM imports yield greenfield finding."""

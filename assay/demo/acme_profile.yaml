@@ -1,0 +1,25 @@
+# Engagement profile for the Acme demo — the same pulse-tier assessment the narrated demo
+# runs, expressed as the per-client entry point the framework actually ships with. Run it:
+#
+#     uv run qba assay run demo/acme_profile.yaml --report demo/out/REPORT_acme_cli.md \
+#         --audit demo/out/audit_acme_cli.jsonl
+#
+# Paths are relative to this file. `mode: pulse` means artifact collectors only — the loader
+# enforces the tier's zero-credential constraint.
+
+client: Acme Analytics
+mode: pulse
+
+collectors:
+  - name: dbt-manifest
+    inputs:
+      manifest_path: fixtures/acme/dbt/manifest.json
+  - name: airflow-dags
+    inputs:
+      dags_dir: fixtures/acme/dags
+  - name: ai-usage
+    inputs:
+      repo_dir: fixtures/acme
+
+limits:
+  spend_limit_usd: 1.00

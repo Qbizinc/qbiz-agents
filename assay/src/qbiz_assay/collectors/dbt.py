@@ -17,18 +17,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from qbiz_assay.collectors import CollectorResult
-from qbiz_assay.findings import (
-    OFFERING_SENSITIVITY,
-    OFFERING_STARTUP_KIT,
-    Dimension,
-    Finding,
-    Severity,
-)
+from qbiz_assay.collectors import AcquisitionMode, CollectorResult, collector
+from qbiz_assay.findings import Finding, Severity
 
-_DIMENSIONS = {Dimension.DATA_QUALITY, Dimension.DOCUMENTATION, Dimension.GOVERNANCE}
+_DIMENSIONS = {"data_quality", "documentation", "governance"}
 
 NAME = "dbt-manifest"
+
+_OFFERING_STARTUP_KIT = "dbt_startup_kit"
+_OFFERING_SENSITIVITY = "sensitivity_classification"
 
 
 def _pct(part: int, total: int) -> int:
@@ -58,6 +55,14 @@ def _freshness_configured(source: dict) -> bool:
     )
 
 
+@collector(
+    name=NAME,
+    dimensions=_DIMENSIONS,
+    mode=AcquisitionMode.ARTIFACT,
+    inputs={"manifest_path": "path to the project's compiled target/manifest.json"},
+    description="dbt project hygiene: test, documentation, and sensitivity-tag coverage, "
+    "plus source freshness SLAs — from the compiled manifest alone.",
+)
 def collect(manifest_path: Path | str) -> CollectorResult:
     result = CollectorResult(name=NAME, dimensions=set(_DIMENSIONS))
     try:
@@ -65,7 +70,7 @@ def collect(manifest_path: Path | str) -> CollectorResult:
     except (OSError, json.JSONDecodeError) as exc:
         result.findings.append(
             Finding(
-                dimension=Dimension.DATA_QUALITY,
+                dimension="data_quality",
                 severity=Severity.HIGH,
                 title="dbt manifest unreadable",
                 detail=f"Could not parse {manifest_path}: {exc}. The project may not compile.",
@@ -73,7 +78,7 @@ def collect(manifest_path: Path | str) -> CollectorResult:
                     "Get `dbt parse` passing first — a project that does not compile cannot "
                     "be tested, documented, or safely handed to an agent."
                 ),
-                offering=OFFERING_STARTUP_KIT,
+                offering=_OFFERING_STARTUP_KIT,
                 subject=str(manifest_path),
             )
         )
@@ -124,12 +129,12 @@ def collect(manifest_path: Path | str) -> CollectorResult:
     if total == 0:
         result.findings.append(
             Finding(
-                dimension=Dimension.DATA_QUALITY,
+                dimension="data_quality",
                 severity=Severity.MEDIUM,
                 title="No models in the dbt manifest",
                 detail="The manifest compiled but contains zero models — nothing to assess.",
                 remediation="Confirm the right manifest was shared, or start from a working template.",
-                offering=OFFERING_STARTUP_KIT,
+                offering=_OFFERING_STARTUP_KIT,
             )
         )
         return result
@@ -137,7 +142,7 @@ def collect(manifest_path: Path | str) -> CollectorResult:
     if untested:
         result.findings.append(
             Finding(
-                dimension=Dimension.DATA_QUALITY,
+                dimension="data_quality",
                 severity=Severity.HIGH if test_cov < 50 else Severity.MEDIUM,
                 title=f"Test coverage is {test_cov}% ({len(untested)} of {total} models untested)",
                 detail=f"Untested models: {_sample(untested)}. Breakage in these ships silently.",
@@ -145,14 +150,14 @@ def collect(manifest_path: Path | str) -> CollectorResult:
                     "Add uniqueness/not-null tests to primary keys first, then relationship "
                     "tests between layers — the startup kit's conventions make this mechanical."
                 ),
-                offering=OFFERING_STARTUP_KIT,
+                offering=_OFFERING_STARTUP_KIT,
             )
         )
 
     if undocumented:
         result.findings.append(
             Finding(
-                dimension=Dimension.DOCUMENTATION,
+                dimension="documentation",
                 severity=Severity.HIGH if doc_cov < 40 else Severity.MEDIUM,
                 title=f"Documentation coverage is {doc_cov}% ({len(undocumented)} models undescribed)",
                 detail=(
@@ -160,14 +165,14 @@ def collect(manifest_path: Path | str) -> CollectorResult:
                     "agent — has to reverse-engineer intent from SQL."
                 ),
                 remediation="Backfill model descriptions; enforce docs-on-new-models in CI.",
-                offering=OFFERING_STARTUP_KIT,
+                offering=_OFFERING_STARTUP_KIT,
             )
         )
 
     if unclassified:
         result.findings.append(
             Finding(
-                dimension=Dimension.GOVERNANCE,
+                dimension="governance",
                 severity=Severity.HIGH if sens_cov < 50 else Severity.MEDIUM,
                 title=(
                     f"Sensitivity classification coverage is {sens_cov}% "
@@ -182,14 +187,14 @@ def collect(manifest_path: Path | str) -> CollectorResult:
                     "Adopt a sensitivity scheme (public/internal/confidential/restricted) as "
                     "model- and column-level meta; treat unclassified as restricted."
                 ),
-                offering=OFFERING_SENSITIVITY,
+                offering=_OFFERING_SENSITIVITY,
             )
         )
 
     if stale_sources:
         result.findings.append(
             Finding(
-                dimension=Dimension.DATA_QUALITY,
+                dimension="data_quality",
                 severity=Severity.MEDIUM,
                 title=f"{len(stale_sources)} source(s) have no freshness checks",
                 detail=(
@@ -197,7 +202,7 @@ def collect(manifest_path: Path | str) -> CollectorResult:
                     "surface as wrong numbers, not alerts."
                 ),
                 remediation="Declare `freshness` on raw sources so staleness pages someone.",
-                offering=OFFERING_STARTUP_KIT,
+                offering=_OFFERING_STARTUP_KIT,
             )
         )
 

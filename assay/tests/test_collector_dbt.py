@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from qbiz_assay.collectors.dbt import collect
-from qbiz_assay.findings import Dimension, Severity
+from qbiz_assay.findings import Severity
 
 
 class TestDbtCollectorAgainstAcmeFixture:
@@ -65,19 +65,19 @@ class TestDbtCollectorAgainstAcmeFixture:
         }
 
         # Test coverage should be HIGH (33% < 50%)
-        assert (Dimension.DATA_QUALITY, Severity.HIGH) in by_dim_severity
-        tc_finding = by_dim_severity[(Dimension.DATA_QUALITY, Severity.HIGH)]
+        assert ("data_quality", Severity.HIGH) in by_dim_severity
+        tc_finding = by_dim_severity[("data_quality", Severity.HIGH)]
         assert "Test coverage" in tc_finding.title
         assert "33%" in tc_finding.title
 
         # Documentation should be HIGH (33% < 40%)
-        assert (Dimension.DOCUMENTATION, Severity.HIGH) in by_dim_severity
-        doc_finding = by_dim_severity[(Dimension.DOCUMENTATION, Severity.HIGH)]
+        assert ("documentation", Severity.HIGH) in by_dim_severity
+        doc_finding = by_dim_severity[("documentation", Severity.HIGH)]
         assert "Documentation coverage" in doc_finding.title
 
         # Sensitivity should be HIGH (17% < 50%)
-        assert (Dimension.GOVERNANCE, Severity.HIGH) in by_dim_severity
-        sens_finding = by_dim_severity[(Dimension.GOVERNANCE, Severity.HIGH)]
+        assert ("governance", Severity.HIGH) in by_dim_severity
+        sens_finding = by_dim_severity[("governance", Severity.HIGH)]
         assert "Sensitivity classification" in sens_finding.title
 
         # Freshness should be MEDIUM
@@ -92,9 +92,9 @@ class TestDbtCollectorAgainstAcmeFixture:
         """dbt collector claims it assessed the expected dimensions."""
         result = collect(acme_manifest)
         assert result.dimensions == {
-            Dimension.DATA_QUALITY,
-            Dimension.DOCUMENTATION,
-            Dimension.GOVERNANCE,
+            "data_quality",
+            "documentation",
+            "governance",
         }
 
 
@@ -108,7 +108,7 @@ class TestDbtCollectorErrorHandling:
         finding = result.findings[0]
         assert finding.severity == Severity.HIGH
         assert "unreadable" in finding.title.lower()
-        assert finding.dimension == Dimension.DATA_QUALITY
+        assert finding.dimension == "data_quality"
 
     def test_invalid_json_yields_unreadable_finding(self, tmp_path: Path):
         """A manifest with invalid JSON produces a single HIGH finding."""

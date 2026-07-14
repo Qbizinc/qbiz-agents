@@ -9,13 +9,13 @@ from qbiz_harness import AuditLog
 from qbiz_assay.assessor import RuleBasedNarrator
 from qbiz_assay.collectors import CollectorResult
 from qbiz_assay.engine import run_assessment
-from qbiz_assay.findings import Dimension, Finding, Severity, OFFERING_STARTUP_KIT, OFFERING_HARNESS
+from qbiz_assay.findings import Finding, Severity
 from qbiz_assay.report import render_markdown
 
 
 def _collector(
     name: str,
-    dimensions: set[Dimension] | None = None,
+    dimensions: set[str] | None = None,
     findings: list[Finding] | None = None,
 ) -> CollectorResult:
     """Helper to create a minimal CollectorResult."""
@@ -44,7 +44,7 @@ class TestReportScorecard:
     def test_scorecard_shows_scored_dimensions(self):
         """Scorecard rows include scored dimensions with their scores and bands."""
         f1 = Finding(
-            dimension=Dimension.DATA_QUALITY,
+            dimension="data_quality",
             severity=Severity.HIGH,
             title="Test issue",
             detail="",
@@ -55,7 +55,7 @@ class TestReportScorecard:
             collectors=[
                 ("test", lambda: _collector(
                     "test",
-                    dimensions={Dimension.DATA_QUALITY},
+                    dimensions={"data_quality"},
                     findings=[f1],
                 )),
             ],
@@ -75,7 +75,7 @@ class TestReportScorecard:
             collectors=[
                 ("test", lambda: _collector(
                     "test",
-                    dimensions={Dimension.DATA_QUALITY},
+                    dimensions={"data_quality"},
                 )),
             ],
         )
@@ -117,7 +117,7 @@ class TestReportExecutiveSummary:
             collectors=[
                 ("test", lambda: _collector(
                     "test",
-                    dimensions={Dimension.DATA_QUALITY},
+                    dimensions={"data_quality"},
                 )),
             ],
         )
@@ -143,7 +143,7 @@ class TestReportDimensionDetails:
         """Scored dimensions get their own section heading."""
         findings = [
             Finding(
-                dimension=Dimension.DATA_QUALITY,
+                dimension="data_quality",
                 severity=Severity.MEDIUM,
                 title="Some issue",
                 detail="",
@@ -155,7 +155,7 @@ class TestReportDimensionDetails:
             collectors=[
                 ("test", lambda: _collector(
                     "test",
-                    dimensions={Dimension.DATA_QUALITY},
+                    dimensions={"data_quality"},
                     findings=findings,
                 )),
             ],
@@ -193,12 +193,12 @@ class TestReportRoadmap:
         """When findings have offerings, a roadmap section appears."""
         findings = [
             Finding(
-                dimension=Dimension.DATA_QUALITY,
+                dimension="data_quality",
                 severity=Severity.HIGH,
                 title="Test coverage low",
                 detail="",
                 remediation="Add tests",
-                offering=OFFERING_STARTUP_KIT,
+                offering="dbt_startup_kit",
             ),
         ]
         assessment = run_assessment(
@@ -206,7 +206,7 @@ class TestReportRoadmap:
             collectors=[
                 ("test", lambda: _collector(
                     "test",
-                    dimensions={Dimension.DATA_QUALITY},
+                    dimensions={"data_quality"},
                     findings=findings,
                 )),
             ],
@@ -218,20 +218,20 @@ class TestReportRoadmap:
         """Roadmap groups findings by offering, each as a ### heading."""
         findings = [
             Finding(
-                dimension=Dimension.DATA_QUALITY,
+                dimension="data_quality",
                 severity=Severity.HIGH,
                 title="Issue 1",
                 detail="",
                 remediation="Fix it",
-                offering=OFFERING_STARTUP_KIT,
+                offering="dbt_startup_kit",
             ),
             Finding(
-                dimension=Dimension.AI_GOVERNANCE,
+                dimension="ai_governance",
                 severity=Severity.CRITICAL,
                 title="Issue 2",
                 detail="",
                 remediation="Fix that",
-                offering=OFFERING_HARNESS,
+                offering="agent_harness",
             ),
         ]
         assessment = run_assessment(
@@ -239,21 +239,21 @@ class TestReportRoadmap:
             collectors=[
                 ("test", lambda: _collector(
                     "test",
-                    dimensions={Dimension.DATA_QUALITY, Dimension.AI_GOVERNANCE},
+                    dimensions={"data_quality", "ai_governance"},
                     findings=findings,
                 )),
             ],
         )
         markdown = render_markdown(assessment)
         assert f"### " in markdown
-        assert OFFERING_STARTUP_KIT in markdown
-        assert OFFERING_HARNESS in markdown
+        assert "Qbiz dbt Startup Kit" in markdown
+        assert "Qbiz Agent Harness" in markdown
 
     def test_roadmap_does_not_appear_when_no_offerings(self):
         """Roadmap section is absent when no findings have offerings."""
         findings = [
             Finding(
-                dimension=Dimension.DATA_QUALITY,
+                dimension="data_quality",
                 severity=Severity.MEDIUM,
                 title="Issue",
                 detail="",
@@ -266,7 +266,7 @@ class TestReportRoadmap:
             collectors=[
                 ("test", lambda: _collector(
                     "test",
-                    dimensions={Dimension.DATA_QUALITY},
+                    dimensions={"data_quality"},
                     findings=findings,
                 )),
             ],
@@ -395,7 +395,7 @@ class TestReportFormatting:
         """Finding details are shown in table format."""
         findings = [
             Finding(
-                dimension=Dimension.DATA_QUALITY,
+                dimension="data_quality",
                 severity=Severity.HIGH,
                 title="Test gap",
                 detail="",
@@ -408,7 +408,7 @@ class TestReportFormatting:
             collectors=[
                 ("test", lambda: _collector(
                     "test",
-                    dimensions={Dimension.DATA_QUALITY},
+                    dimensions={"data_quality"},
                     findings=findings,
                 )),
             ],

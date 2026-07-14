@@ -11,12 +11,13 @@ from qbiz_harness import AuditLog
 from qbiz_assay.assessor import Narrator, NarrationResult, RuleBasedNarrator
 from qbiz_assay.collectors import CollectorResult
 from qbiz_assay.engine import Assessment, AssessmentLimits, run_assessment
-from qbiz_assay.findings import Dimension, Finding, Severity
+from qbiz_assay.config import baseline_config
+from qbiz_assay.findings import Finding, Severity
 
 
 def _dummy_collector(
     name: str,
-    dimensions: set[Dimension] | None = None,
+    dimensions: set[str] | None = None,
     findings: list[Finding] | None = None,
 ) -> CollectorResult:
     """Helper to create a CollectorResult with minimal setup."""
@@ -104,7 +105,7 @@ class TestEngineCostGovernor:
             collectors=[
                 ("test", lambda: _dummy_collector(
                     "test",
-                    dimensions={Dimension.DATA_QUALITY, Dimension.DOCUMENTATION, Dimension.GOVERNANCE},
+                    dimensions={"data_quality", "documentation", "governance"},
                     findings=[],
                 )),
             ],
@@ -143,7 +144,7 @@ class TestEngineCostGovernor:
             collectors=[
                 ("test", lambda: _dummy_collector(
                     "test",
-                    dimensions={Dimension.DATA_QUALITY, Dimension.DOCUMENTATION},
+                    dimensions={"data_quality", "documentation"},
                     findings=[],
                 )),
             ],
@@ -168,7 +169,7 @@ class TestEngineNarrationCoverage:
             collectors=[
                 ("test", lambda: _dummy_collector(
                     "test",
-                    dimensions={Dimension.DATA_QUALITY, Dimension.OPERATIONS},
+                    dimensions={"data_quality", "operations"},
                     findings=[],
                 )),
             ],
@@ -183,7 +184,7 @@ class TestEngineNarrationCoverage:
         assessment = run_assessment(
             client_name="Test Client",
             collectors=[
-                ("col1", lambda: _dummy_collector("col1", dimensions={Dimension.DATA_QUALITY})),
+                ("col1", lambda: _dummy_collector("col1", dimensions={"data_quality"})),
             ],
             audit=audit,
         )
@@ -209,7 +210,7 @@ class TestEngineNarrationCoverage:
             collectors=[
                 ("test-collector", lambda: _dummy_collector(
                     "test-collector",
-                    dimensions={Dimension.DATA_QUALITY},
+                    dimensions={"data_quality"},
                 )),
             ],
             audit=audit,
@@ -238,9 +239,9 @@ class TestEngineNarrationCoverage:
                 ("test", lambda: _dummy_collector(
                     "test",
                     dimensions={
-                        Dimension.DATA_QUALITY,
-                        Dimension.DOCUMENTATION,
-                        Dimension.GOVERNANCE,
+                        "data_quality",
+                        "documentation",
+                        "governance",
                     },
                 )),
             ],
@@ -282,14 +283,14 @@ class TestEngineAssessment:
     def test_assessment_collects_all_findings(self):
         """All findings from all collectors are in assessment.findings."""
         f1 = Finding(
-            dimension=Dimension.DATA_QUALITY,
+            dimension="data_quality",
             severity=Severity.HIGH,
             title="F1",
             detail="",
             remediation="",
         )
         f2 = Finding(
-            dimension=Dimension.GOVERNANCE,
+            dimension="governance",
             severity=Severity.CRITICAL,
             title="F2",
             detail="",
@@ -300,7 +301,7 @@ class TestEngineAssessment:
             collectors=[
                 ("test", lambda: _dummy_collector(
                     "test",
-                    dimensions={Dimension.DATA_QUALITY, Dimension.GOVERNANCE},
+                    dimensions={"data_quality", "governance"},
                     findings=[f1, f2],
                 )),
             ],
@@ -317,15 +318,16 @@ class TestEngineAssessment:
                 ("test", lambda: _dummy_collector("test")),
             ],
         )
-        assert len(assessment.scores) == len(Dimension)
-        for dim in Dimension:
+        baseline_dims = baseline_config().rubric.dimension_ids()
+        assert len(assessment.scores) == len(baseline_dims)
+        for dim in baseline_dims:
             assert dim in assessment.scores
 
     def test_assessment_with_findings_computes_overall_score(self):
         """With findings, overall score is computed from assessed dimensions."""
         findings = [
             Finding(
-                dimension=Dimension.DATA_QUALITY,
+                dimension="data_quality",
                 severity=Severity.HIGH,
                 title="Issue",
                 detail="",
@@ -337,7 +339,7 @@ class TestEngineAssessment:
             collectors=[
                 ("test", lambda: _dummy_collector(
                     "test",
-                    dimensions={Dimension.DATA_QUALITY},
+                    dimensions={"data_quality"},
                     findings=findings,
                 )),
             ],

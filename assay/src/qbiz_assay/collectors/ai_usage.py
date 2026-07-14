@@ -17,16 +17,13 @@ import ast
 import re
 from pathlib import Path
 
-from qbiz_assay.collectors import CollectorResult
-from qbiz_assay.findings import (
-    OFFERING_ADVISORY,
-    OFFERING_HARNESS,
-    Dimension,
-    Finding,
-    Severity,
-)
+from qbiz_assay.collectors import AcquisitionMode, CollectorResult, collector
+from qbiz_assay.findings import Finding, Severity
 
-_DIMENSIONS = {Dimension.AI_GOVERNANCE, Dimension.GOVERNANCE}
+_DIMENSIONS = {"ai_governance", "governance"}
+
+_OFFERING_HARNESS = "agent_harness"
+_OFFERING_ADVISORY = "ai_advisory"
 
 NAME = "ai-usage"
 
@@ -77,6 +74,14 @@ def _matches(modules: set[str], prefixes: tuple[str, ...]) -> set[str]:
     return hits
 
 
+@collector(
+    name=NAME,
+    dimensions=_DIMENSIONS,
+    mode=AcquisitionMode.ARTIFACT,
+    inputs={"repo_dir": "path to a repo checkout to scan (read access only)"},
+    description="Where the client already calls LLMs and what governs those calls: provider "
+    "SDK imports, governance-layer presence, hardcoded-credential scan.",
+)
 def collect(repo_dir: Path | str) -> CollectorResult:
     result = CollectorResult(name=NAME, dimensions=set(_DIMENSIONS))
     repo_dir = Path(repo_dir)
@@ -127,7 +132,7 @@ def collect(repo_dir: Path | str) -> CollectorResult:
     for rel in credential_files[:5]:
         result.findings.append(
             Finding(
-                dimension=Dimension.GOVERNANCE,
+                dimension="governance",
                 severity=Severity.CRITICAL,
                 title=f"Hardcoded credential in {rel}",
                 detail="A secret is committed in source. Anyone with repo access has it; so does the git history.",
@@ -141,7 +146,7 @@ def collect(repo_dir: Path | str) -> CollectorResult:
         extra = len(ungoverned) - 5
         result.findings.append(
             Finding(
-                dimension=Dimension.AI_GOVERNANCE,
+                dimension="ai_governance",
                 severity=Severity.HIGH,
                 title=f"{len(ungoverned)} ungoverned LLM call site(s)",
                 detail=(
@@ -153,13 +158,13 @@ def collect(repo_dir: Path | str) -> CollectorResult:
                     "Route LLM calls through an enforcement harness: token/spend caps, loop "
                     "guards, output validation, and an append-only audit log."
                 ),
-                offering=OFFERING_HARNESS,
+                offering=_OFFERING_HARNESS,
             )
         )
         if not governed_files:
             result.findings.append(
                 Finding(
-                    dimension=Dimension.AI_GOVERNANCE,
+                    dimension="ai_governance",
                     severity=Severity.MEDIUM,
                     title="No AI audit trail exists anywhere in the estate",
                     detail=(
@@ -168,13 +173,13 @@ def collect(repo_dir: Path | str) -> CollectorResult:
                         "currently unanswerable."
                     ),
                     remediation="Adopt a shared audit log for all agent activity before usage grows.",
-                    offering=OFFERING_HARNESS,
+                    offering=_OFFERING_HARNESS,
                 )
             )
     elif not llm_files:
         result.findings.append(
             Finding(
-                dimension=Dimension.AI_GOVERNANCE,
+                dimension="ai_governance",
                 severity=Severity.INFO,
                 title="No direct LLM usage detected — greenfield",
                 detail=(
@@ -182,7 +187,7 @@ def collect(repo_dir: Path | str) -> CollectorResult:
                     "this repo) — the cheapest moment to adopt governed-by-default patterns."
                 ),
                 remediation="Start with a governed reference agent rather than retrofitting controls later.",
-                offering=OFFERING_ADVISORY,
+                offering=_OFFERING_ADVISORY,
             )
         )
 

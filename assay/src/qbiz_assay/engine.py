@@ -7,6 +7,10 @@ parsing, zero tokens); the narrator is the only metered stage. If the governor c
 narrator off mid-run, the engine degrades to the rule-based narrator for the remaining
 sections — a governed assessment always completes, it never half-fails.
 
+The engine is generic machinery: which dimensions exist, their titles and weights, and the
+score bands all come from the ``AssessmentConfig`` registry it is handed — it iterates that
+registry and the scores derived from it, never a compiled-in list.
+
 This makes Assay the meta-demo: the report we hand a prospect was produced by an agent running
 under the same harness we sell, and the report's final section says so with numbers.
 """
@@ -29,14 +33,9 @@ from qbiz_harness import (
 
 from qbiz_assay.assessor import Narrator, RuleBasedNarrator
 from qbiz_assay.collectors import CollectorResult
-from qbiz_assay.findings import (
-    DIMENSION_TITLES,
-    SEVERITY_ORDER,
-    Dimension,
-    Finding,
-    Severity,
-)
-from qbiz_assay.rubric import DimensionScore, band_for, overall_score, score_dimensions
+from qbiz_assay.config import AssessmentConfig, baseline_config
+from qbiz_assay.findings import SEVERITY_ORDER, DimensionId, Finding, Severity
+from qbiz_assay.rubric import DimensionScore, overall_score, score_dimensions
 
 AGENT_ID = "assay-agent"
 COHORT = "assay"
@@ -58,15 +57,17 @@ class AssessmentLimits:
 
 @dataclass(slots=True)
 class Assessment:
-    """Everything one run produced, including the governor and audit log that governed it."""
+    """Everything one run produced, including the config that shaped it and the governor and
+    audit log that governed it."""
 
     client_name: str
     run_id: str
     collector_results: list[CollectorResult]
     findings: list[Finding]
-    scores: dict[Dimension, DimensionScore]
+    scores: dict[DimensionId, DimensionScore]
     overall: int | None
     narratives: dict[str, str]
+    config: AssessmentConfig
     fallback_sections: list[str] = field(default_factory=list)
     audit: AuditLog = field(default_factory=AuditLog)
     governor: CostGovernor | None = None
@@ -81,9 +82,10 @@ def _estimate_tokens(context: dict[str, object]) -> int:
 def _section_context(
     section: str,
     client_name: str,
-    scores: dict[Dimension, DimensionScore],
+    scores: dict[DimensionId, DimensionScore],
     overall: int | None,
     overall_band: str,
+    config: AssessmentConfig,
 ) -> dict[str, object]:
     """The narrator's entire world for one section — it explains this, nothing else."""
     if section == "executive_summary":
@@ -94,7 +96,7 @@ def _section_context(
             "band": overall_band,
             "dimensions": [
                 {
-                    "title": DIMENSION_TITLES[dim],
+                    "title": config.rubric.title_for(dim),
                     "score": score.score,
                     "band": score.band,
                     "finding_count": len(score.findings),
@@ -105,11 +107,10 @@ def _section_context(
             "critical_count": sum(1 for f in findings if f.severity == Severity.CRITICAL),
         }
 
-    dim = Dimension(section)
-    score = scores[dim]
+    score = scores[section]
     ordered = sorted(score.findings, key=lambda f: SEVERITY_ORDER[f.severity])
     return {
-        "title": DIMENSION_TITLES[dim],
+        "title": config.rubric.title_for(section),
         "score": score.score,
         "band": score.band,
         "findings": [
@@ -130,8 +131,12 @@ def run_assessment(
     narrator: Narrator | None = None,
     audit: AuditLog | None = None,
     limits: AssessmentLimits | None = None,
+    config: AssessmentConfig | None = None,
 ) -> Assessment:
     """Run one governed assessment: collect (free) → score (free) → narrate (metered).
+
+    ``config`` defaults to the shipped Qbiz baseline; an engagement profile supplies an
+    overridden one (see ``qbiz_assay.profile``).
 
     Harness wiring, per component:
     - **CostGovernor** — token/spend caps on the narrator; an action cap on narrative
@@ -142,6 +147,7 @@ def run_assessment(
     """
     limits = limits or AssessmentLimits()
     audit = audit or AuditLog()
+    config = config or baseline_config()
     active: Narrator = narrator or RuleBasedNarrator()
     fallback = RuleBasedNarrator()
 
@@ -196,20 +202,20 @@ def run_assessment(
 
     # --- Stage 2: deterministic scoring ---------------------------------------------------
     findings = [f for r in results for f in r.findings]
-    assessed: set[Dimension] = set()
+    assessed: set[DimensionId] = set()
     for r in results:
         assessed |= r.dimensions
-    scores = score_dimensions(findings, assessed)
-    overall = overall_score(scores)
-    overall_band = band_for(overall) if overall is not None else "Not assessed"
+    scores = score_dimensions(findings, assessed, config.rubric)
+    overall = overall_score(scores, config.rubric)
+    overall_band = config.rubric.band_for(overall) if overall is not None else "Not assessed"
 
     # --- Stage 3: narration, metered by the governor --------------------------------------
     narratives: dict[str, str] = {}
     fallback_sections: list[str] = []
-    sections = ["executive_summary"] + [d.value for d in Dimension if scores[d].assessed]
+    sections = ["executive_summary"] + [d for d, s in scores.items() if s.assessed]
 
     for section in sections:
-        context = _section_context(section, client_name, scores, overall, overall_band)
+        context = _section_context(section, client_name, scores, overall, overall_band, config)
 
         if active is not fallback:
             try:
@@ -266,6 +272,7 @@ def run_assessment(
         scores=scores,
         overall=overall,
         narratives=narratives,
+        config=config,
         fallback_sections=fallback_sections,
         audit=audit,
         governor=governor,
