@@ -10,6 +10,10 @@ OUTPUT = ROOT / "checksums.sha256"
 DIRS = ["skills", "mcp"]
 EXTENSIONS = {".md", ".yaml", ".json"}
 
+#: Directories that may exist locally (venvs, caches) but must never contribute checksums —
+#: their contents vary per machine/install, so including them makes this file non-reproducible.
+SKIP_DIRS = {".git", ".venv", "venv", "__pycache__", ".pytest_cache", "node_modules", "site-packages", ".terraform"}
+
 
 def sha256(path: Path) -> str:
     content = path.read_text(encoding="utf-8").replace("\r\n", "\n")
@@ -20,10 +24,13 @@ def main():
     lines = []
     for dir_name in DIRS:
         for f in sorted((ROOT / dir_name).rglob("*")):
+            rel = f.relative_to(ROOT)
+            if SKIP_DIRS.intersection(rel.parts):
+                continue
             if f.is_file() and f.suffix in EXTENSIONS:
-                rel = f.relative_to(ROOT).as_posix()
-                lines.append(f"{sha256(f)}  {rel}")
-                print(f"  OK  {rel}")
+                rel_posix = rel.as_posix()
+                lines.append(f"{sha256(f)}  {rel_posix}")
+                print(f"  OK  {rel_posix}")
 
     OUTPUT.write_text("\n".join(lines) + "\n")
     print(f"\nWrote {len(lines)} checksums to checksums.sha256")
