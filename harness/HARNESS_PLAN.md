@@ -639,6 +639,51 @@ Concurrent ≠ chained.
 
 ---
 
+## Data Sensitivity Classification & Data-Level Guardrails
+
+> **Consumer-driven (2026-07-08).** The `qbiz_dbt_startup_kit` — a dbt kit built
+> to be driven by AI agents — needs the harness to stop a consultant from
+> *accidentally exposing sensitive data through an AI* (e.g. an agent that
+> summarizes a table and sweeps a PII column into a Slack post). Full design lives
+> in that repo's `docs/DATA_SENSITIVITY_PROPOSAL.md` (pending team sign-off). This
+> section records what the harness must do to support it — **including
+> capabilities not yet specced above** — so the need is visible from the harness
+> side. Nothing here is built.
+
+**Client policy overrides the QBiz baseline.** As everywhere in the QBiz stack, a
+client's own data-classification and security protocols take precedence. The QBiz
+taxonomy (`public` / `internal` / `confidential` / `restricted` + PII/PHI/PCI
+categories) is a **good default baseline**, most valuable for clients with no
+policy of their own. The harness must therefore treat the classification scheme
+**and its enforcement thresholds as configuration** (per-engagement, overridable),
+never hardcoded — same posture as `limits.yaml`.
+
+**The model:** the data producer (the dbt kit) *declares* per-object sensitivity
+as metadata (in dbt `manifest.json` / `catalog.json`); the harness *enforces* it.
+Per the dependency rule, the harness imports nothing from the kit — the agent
+feeds kit-derived classification into the controls at its call site.
+
+### Desired features (several not yet specced above)
+
+| # | Capability | Relationship to current spec |
+|---|---|---|
+| **J1** | **Data-object access control by clearance** — deny an agent reads of tables/schemas/columns above its sensitivity clearance (e.g. a LOW read-only agent cannot touch any `restricted` model or the `silver_pii` schema). | **New / extends Component 3.** Component 3 today is *tool*-level allowlisting; this extends the same idea to *data-object*-level, keyed on classification. Sits on `[D1]` agent-identity. |
+| **J2** | **Classification-aware redaction** — mask values of columns declared `restricted` before they enter the model context. | **Extends Component 1.** Component 1 already plans PII stripping *by detection* (regex/Guardrails); this adds stripping *by declaration* (trust the manifest's column classification) — far more reliable than pattern-matching. **Unblocked; natural first increment.** |
+| **J3** | **Classified-data leak detection in output** — block agent output containing values sourced from `restricted` columns. | **Extends Component 2** (which flags out-of-scope *systems* today) to out-of-scope *data*. |
+| **J4** | **Classification in the audit schema** — record the sensitivity level/category of data each action touched, so "did any agent touch PII this week?" is queryable at fleet scale. | **New audit fields** — not in the current `{agent_id, action, …, event_type, intervention, incident_id, cohort, job_id}` schema. Additive. |
+| **J5** | **Classification-driven auto risk-tiering** — an agent whose reachable data includes `restricted`/PII is automatically HIGH+ (VERY HIGH if regulated), pulling in evaluator + HITL + red-team gates. | **Mechanizes Risk Tiering** — today the tier is assigned by judgment; this derives a *floor* from the data in scope. |
+| **J6** | **Classification provider/loader** — a shared interface the above consult to resolve an object's classification at runtime (from the dbt manifest/catalog, or a dbt MCP surface). | **New shared infrastructure.** Source is an open decision — see `[D7]`. |
+
+**Fail-safe posture:** default-deny / default-redact when an object's
+classification is missing or ambiguous — unclassified is treated as `restricted`,
+never waved through.
+
+**Dependencies & sequencing:** J1 and J5's enforcement sit on `[D1]`
+agent-identity, so this **raises D1's priority**. **J2 (redaction) is unblocked**
+and is the sensible first deliverable. `[D7]` settles the classification source.
+
+---
+
 ## Quality Gates
 
 ### Gate 1 — Automated Checks (runs on every build, blocks deployment on failure)
@@ -809,6 +854,7 @@ are **ours to make** at build time.
 | **D4** | **Audit storage backend (HIGH+)** — *pluggable, warehouse-agnostic writer*, not a single vendor. Preferred: client's existing warehouse (Snowflake / BigQuery / Redshift) so audit joins their analytics; portable fallback: small MySQL/Postgres via SQLAlchemy; demo: local JSONL (built). See **Fleet Operation**. | Production-grade audit **and all fleet aggregate monitoring** | Before any HIGH+ production deploy or any multi-agent client engagement. Demo uses local JSONL. | Ours. *Promoted by the fleet direction (2026-06-19); build one writer interface, pick the engine per engagement.* |
 | **D5** | **Injection-screening dependency** — regex-only vs. Guardrails AI vs. Rebuff. | Full Component 1 (Phase 2) | At Phase 2. Ship regex-only first; add a library later if needed. | Ours. *Decide at build time.* |
 | **D6** | **HITL timeout policy (per agent)** — fail-closed / fail-open / escalate. | Per-agent config, **not** the Component 8 mechanism | At each agent's config time. **Default fail-closed for HIGH+.** | Ours. *Per-agent, default exists.* |
+| **D7** | **Data-classification source & data-level access-control scope** — where the harness reads per-object sensitivity at runtime (dbt `manifest.json` / `catalog.json` `meta` vs. a dbt MCP surface), and how far data-object access control (J1) extends (schema / table / column). Client policy overrides the QBiz baseline taxonomy. | J1–J6 (data-sensitivity guardrails); sharpens `[D1]` | Before building data-level guardrails; consumer (`qbiz_dbt_startup_kit`) is waiting on it. See **Data Sensitivity Classification** above. | Team + ours. *New (2026-07-08); design in that kit's `docs/DATA_SENSITIVITY_PROPOSAL.md`.* |
 
 **The two that actually pace us are D1 and D3** — both are team decisions and both are on the
 critical path to *client* work (not the demo, which can proceed without full LLM capability). D2
