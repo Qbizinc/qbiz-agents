@@ -5,6 +5,8 @@ __pycache__/
 dist/
 build/
 .venv/
+.pytest_cache/
+logs/
 references/
 .env
 .env.local
@@ -14,3 +16,4 @@ terraform.tfstate.*
 *.tfplan
 terraform.tfvars
 !terraform.tfvars.example
+.varve/
