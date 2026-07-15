@@ -245,6 +245,44 @@ Default: write them in the client engagement repo (isolation, client IP stays th
 promote to this repo's `collectors/contrib/` when generalized. The promotion step is the
 compounding flywheel — needs a real decision on the default and the generalization bar.
 
+### The RAG store's role across the framework
+
+The `rag` MCP is the shared, queryable store the reuse rule points connected/persistent needs
+at (`mcp/mcp_rag/`, local `fastembed` embeddings — no key, no `[D3]` dependency; consumable
+either as an MCP toolset or the library-embed pattern the incident-memory skill uses). It earns
+its place in Assay only where the input is *genuinely unstructured*. Three uses, in value order:
+
+1. **Interview / document-evidence collector (Phase 4) — the strongest new fit.** Interview
+   mode's whole point is the dimensions with no parser: governance *process*, retention policy,
+   siloing, ownership culture. Much of the evidence for those already exists as client documents
+   — policy PDFs, runbooks, data dictionaries, Confluence/wiki exports, org charts — just not in
+   a form a deterministic collector can read. A RAG-backed collector `ingest`s the client-shared
+   docs, then runs targeted `search` queries ("documented data-retention policy?", "incident
+   escalation runbook?", "named data owner per domain?") and emits `Finding`s with evidence type
+   **`system-of-record`** where a document backs the answer — an evidence-quality upgrade over
+   the `attestation` a bare interview yields. This is the mechanism that lets the full tier
+   assess its softest dimensions honestly instead of vibes-scoring them, and it lands as a
+   Tier-1 collector (`requires_mcp: rag`).
+2. **Cross-engagement precedent / calibration corpus (Phase 5).** Index every past Assay report
+   (findings, scores, offering roadmap) into RAG; at assessment time, `search` for comparable
+   estates to surface what similar clients scored and which remediation followed. The
+   `list_sources` ledger *is* the accumulating benchmark corpus — the concrete substrate for the
+   long-open **`[A3]`** score-calibration item (real prior engagements to anchor bands against)
+   and the raw material for **`[A2]`** benchmarking, once its consent bar is settled.
+3. **Re-assessment trend line (Phase 5, already planned).** Index prior runs of the *same*
+   client keyed by engagement; on re-run the narrator recalls them to report score deltas and
+   recurring findings — the retainer story. (Already a Phase 5 bullet; #1 and #2 make it cheaper
+   by the time it's built.)
+
+**The boundary that keeps this honest:** RAG never touches the artifact collectors. `manifest.json`,
+DAG ASTs, and the credential scan are deterministic, zero-token, parsing-only *by design* —
+their findings are facts, not semantic-search matches, and routing them through RAG would break
+the deterministic-first rule and the "findings the narrator can't alter" guarantee. RAG belongs
+only where the alternative is a human reading unstructured prose. **Watch the tags gotcha** the
+incident-memory dogfooding surfaced: `rag search(tags=...)` is OR / any-of, not AND, so scope
+each client's corpus by a *unique engagement tag alone* — a shared `assay` tag would bleed one
+client's documents into another's recall.
+
 ## Build phases
 
 - **Phase 1 — scaffold (DONE 2026-07-09):** the pulse-tier pipeline end to end: three artifact
@@ -304,6 +342,11 @@ compounding flywheel — needs a real decision on the default and the generaliza
   - Interview mode: questionnaire schema, answer capture, attestation findings — unlocks
     **Siloing** (org structure, duplicated pipelines, trust boundaries) and governance-process
     dimensions.
+  - **Document-evidence collector** (RAG-backed, `requires_mcp: rag`): ingest client-shared
+    unstructured docs (policies, runbooks, data dictionaries, wiki exports) and query them to
+    back the same soft dimensions with `system-of-record` evidence instead of bare attestation.
+    See [The RAG store's role across the framework](#the-rag-stores-role-across-the-framework),
+    use #1 — this is the reuse rule applied: consume the `rag` MCP, don't grow an Assay store.
   - Evidence typing surfaced throughout the report; findings register + per-dimension workbook
     as the full-tier report alongside the pulse-tier markdown.
   - Resumable multi-day engagement state (an assessment is now a directory, not a run).
@@ -315,6 +358,10 @@ compounding flywheel — needs a real decision on the default and the generaliza
   - **Re-assessment trend line** (RAG MCP as the store, same library-embed pattern as the
     incident memory skill): re-run each quarter, show score deltas — turns a one-shot
     assessment into a retainer.
+  - **Cross-engagement precedent corpus** (RAG MCP): index past reports so an assessment can
+    recall comparable estates — the concrete substrate for `[A3]` calibration (real engagements
+    to anchor bands against) and the raw material for the benchmark below. See
+    [The RAG store's role across the framework](#the-rag-stores-role-across-the-framework), use #2.
   - Anonymized cross-client benchmark ("bottom quartile for test coverage") — **needs the
     `[A2]` data-ethics/consent decision before any pooling.**
 
@@ -327,7 +374,9 @@ compounding flywheel — needs a real decision on the default and the generaliza
 - **[A3] Rubric weights:** severity weights (40/25/10/4/0) and bands are sensible defaults;
   calibrate against a few real engagements before anyone quotes a score externally. Phase 2
   moves them from code to config, which is the enforcement half of this decision; calibration
-  remains open.
+  remains open. The Phase 5 RAG precedent corpus (past reports indexed for recall) is the
+  intended substrate for doing this against real engagements rather than by hand — see
+  [The RAG store's role across the framework](#the-rag-stores-role-across-the-framework), use #2.
 - **[A4] Scope creep guard:** collectors must stay read-only forever — in *every* acquisition
   mode. The moment Assay *fixes* things it competes with the engagements it's meant to sell,
   and its risk tier jumps. For connected mode this graduates from principle to mechanism:

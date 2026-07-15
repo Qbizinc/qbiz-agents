@@ -38,6 +38,19 @@ their whole estate — and we get a findings-to-offerings roadmap that writes th
   agent harness — cost-capped, bounded, fully audited — and the report's final section prints
   those numbers. "The document you're holding was produced by a governed agent" is a working
   demo of exactly what we sell.
+- **It reads the client's own documents as evidence, not just their code** *(roadmap)*. The
+  softest, highest-stakes dimensions — data governance, retention, ownership, siloing — usually
+  can't be parsed from artifacts, and today they'd rest on interview notes. A planned
+  document-evidence step ingests the policies, runbooks, and data dictionaries a client already
+  has and cites *their* documents back in the findings. That moves those findings from "someone
+  told us" to "your own governance doc says so," which is a materially stronger thing to put in
+  front of a prospect.
+- **Every engagement makes the pitch sharper — and quantified** *(roadmap)*. Assessments
+  accumulate into a searchable library of past engagements, which is what lets us say "you're in
+  the bottom quartile for test coverage among data teams your size" instead of quoting an
+  uncalibrated number, and lets each new discovery recall how comparable clients scored and what
+  fixed it. This is the compounding story with numbers behind it — the reason the tenth
+  assessment is more persuasive than the first.
 
 ### What the full analysis runs against a client **today**
 
@@ -53,6 +66,13 @@ IAM), and AI provider spend; plus structured interviews for dimensions you can't
 organizational siloing and governance process. The first connected check — AWS security
 posture — is built and tested; it needs the live-connection wiring that ships in the next
 phase. Scope these as roadmap when you're setting expectations, not as available this quarter.
+
+Also on the roadmap, and worth knowing when you're describing the ceiling of the full tier: the
+**document-evidence** step (reads client-shared policies/runbooks/dictionaries and cites them in
+governance and siloing findings) and the **precedent library** (past assessments indexed so we
+can benchmark a client against comparable teams and calibrate scores against real engagements).
+Both reuse our existing internal RAG service rather than new infrastructure, but neither is
+client-runnable yet — describe them as where the tool is going, not what it does today.
 
 ## Pulse check — the zero-credential on-ramp
 
