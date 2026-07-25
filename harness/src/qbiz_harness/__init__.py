@@ -21,6 +21,7 @@ from qbiz_harness.exceptions import (
     HitlEscalationRequired,
     InputRejectedError,
     LoopLimitError,
+    ModelPolicyError,
     OutputRejectedError,
     PermissionDeniedError,
     RateLimitError,
@@ -31,6 +32,7 @@ from qbiz_harness.hitl import (
     TimeoutPolicy,
     hitl_checkpoint,
 )
+from qbiz_harness.model_policy import ActivityBand, ModelPolicy, Tier
 from qbiz_harness.orchestration import LoopGuard, with_retry
 from qbiz_harness.output_validator import (
     ValidationResult,
@@ -54,8 +56,13 @@ __all__ = [
     "LoopLimitError",
     "PermissionDeniedError",
     "HitlEscalationRequired",
+    "ModelPolicyError",
     # Component 5 — Cost & Compute Governors
     "CostGovernor",
+    # Component 5 extension — Model-Tier Policy
+    "ModelPolicy",
+    "ActivityBand",
+    "Tier",
     # Component 2 — Output Validator
     "validate_output",
     "inspect_output",

@@ -995,12 +995,16 @@ These need no pending decision and no per-agent input — build now, in any orde
 - [x] **Component 6 — Orchestration Controls** (`orchestration.py`): retry/backoff, loop guard,
       fallback paths. Engineering detail to settle in-code: per-tool timeouts (not a blocker).
       *Done — per-call timeout is a call-site arg; tests in `tests/test_orchestration.py`.*
-- [ ] **Component 5 extension — Model-Tier Policy** (`model_policy.py`): provider-agnostic
+- [x] **Component 5 extension — Model-Tier Policy** (`model_policy.py`): provider-agnostic
       `Tier` ordinals + per-activity `ModelPolicy.check(activity, model)`; new `ModelPolicyError` on
       the `HarnessError` hierarchy. Agent-agnostic and **unblocked** — like `CostGovernor`, the
       launcher constructs it with config; needs no `[D1]`. The *primitive* ships here; the concrete
       tier taxonomy/provider map is `[D8]` (couples to `[D3]`) and the per-cohort bands are authored
-      in Phase 7. Gate 1 threshold tests land with it (see Gate 1).
+      in Phase 7. *Done — hard ceiling always enforced, floor enforced only when `floor_hard=True`;
+      construction-time validation that a `requires_multi_model` activity's band admits more than
+      one concrete model; Gate 1 tests in `tests/test_model_policy.py` (14 cases: ceiling, floor,
+      cross-provider parity, fail-closed on unmapped model/activity, policy not runtime-widenable,
+      evaluator-band validation, reference call-site ordering + audit).*
 - [x] **Cross-cutting Audit Log** (`audit.py`): structured append-only event writer. Everything
       below logs through it, so build it here. Demo can use local append-only JSON; production
       storage backend is `[D4]` and not needed yet. *Done — local JSONL; tests in

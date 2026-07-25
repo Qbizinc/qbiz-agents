@@ -40,6 +40,17 @@ class PermissionDeniedError(HarnessError):
     """Component 3 — the agent is not permitted to call this tool with these arguments."""
 
 
+class ModelPolicyError(HarnessError):
+    """Component 5 extension — a model-tier policy check failed.
+
+    Raised before the LLM call it would have guarded: the requested model is unmapped, the
+    activity has no configured band, the model exceeds the activity's ceiling, or (rarer) falls
+    below a hard floor. Also raised at construction time if a policy's own config is
+    unsatisfiable (e.g. an activity requiring a different-model evaluator whose band admits
+    only one concrete model) — a build error, not a runtime surprise.
+    """
+
+
 class HitlEscalationRequired(HarnessError):
     """Component 8 — a HITL checkpoint timed out under the *escalate* policy.
 
