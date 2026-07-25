@@ -129,11 +129,106 @@ so plainly rather than overselling. This framing is load-bearing for client conv
 | **Adversarial inputs** (prompt injection, jailbreaks, poisoned data sources) | **Strong** | Input wrapper + tool access controls enforce hard boundaries the model cannot reason around. |
 | **Hallucination** | **Meaningful containment** | Output validator catches hallucinated tool calls and references to nonexistent data; evaluator catches semantically wrong output. The root cause lives in the model — the harness bounds the blast radius, it does not cure it. |
 | **Bias & drift** | **Backstop, not primary fix** | Evaluator can be tuned to flag biased/drifting output and human review catches the rest, but the primary fix is model selection and instruction quality. The harness is the safety net, not the solution. |
-| **Runaway behavior & cost** | **Strong** | Rate limits, spend caps, action limits, and kill switches stop an agent spiraling or racking up compute; orchestration controls prevent deadlock and infinite loops. |
+| **Runaway behavior & cost** | **Strong** | Rate limits, spend caps, action limits, and kill switches stop an agent spiraling or racking up compute; orchestration controls prevent deadlock and infinite loops; the model-tier policy caps per-activity model strength so a trivial step cannot self-escalate to a frontier model. |
 
 The takeaway for positioning: higher risk does not mean "no" — it means the architecture has to
 earn the trust. What the harness *cannot* fix (model-rooted bias, fundamental hallucination
 tendency) is addressed upstream in model and instruction choice, not pretended away.
+
+---
+
+## The Enforcement Perimeter — Ring 1 (Harness) vs. Rings 2–3 (Client Infrastructure)
+
+**This section exists to answer a question that comes up in nearly every client conversation:**
+*"Can this stop our salespeople from using a frontier model to build presentations?"* (or the
+general form: "can it govern which models which people use, company-wide?"). The honest answer is a
+scoping answer, and getting it right keeps us from overselling the harness *and* from letting the
+harness scope-creep into problems it structurally cannot solve. **Point the client at the right
+layer instead.**
+
+**The governing principle** (the same one the whole harness rests on): enforcement only holds at a
+**chokepoint the caller cannot route around.** The harness owns the innermost chokepoint — it is
+*inside the agent's code path*, so an agent physically cannot make a model call without passing
+through it (this is what the **Model-Tier Policy**, Component 5's extension, does for model strength).
+The further out from our code you push the chokepoint, the leakier it gets — and a company-wide
+"which people may use which models" policy lives in the two outer rings, which are **client
+infrastructure, not harness code.**
+
+| Ring | What flows through it | Enforcement point | Owner | Control strength |
+|---|---|---|---|---|
+| **1 — Agent code** | LLM calls our agents make | **The harness** (`ModelPolicy`, cost governor, access controls, …) | **Us** — this plan | **Total** — in-process, un-bypassable |
+| **2 — Programmatic API use** | Any code/employee hitting an LLM *API* | An **LLM gateway/proxy** + blocked direct egress | **Client platform/security team** | **Strong** — *if* the bypass is closed |
+| **3 — Third-party AI SaaS** | People using ChatGPT / Claude / Copilot / Gemini in a browser | Vendor admin controls + CASB/network + tenant restrictions | **Client IT/security + procurement** | **Partial** — never airtight |
+
+The harness delivers Ring 1 in full. Rings 2 and 3 are what we *advise the client to build* — and
+deliberately **not** things we fold into `qbiz_harness` (they have no place inside an in-process
+agent library; see the one-way-dependency discipline and *Deferred Concerns*). What follows is the
+guidance to give.
+
+### Ring 2 — the corporate generalization of the harness (client builds this)
+
+For all *programmatic* model access across the company, the client applies the harness's own
+"enforce, not route" pattern one layer out: route every model call through a single egress
+**gateway** that authenticates the caller against the corporate IdP, looks up `group → allowed
+tier`, and **rejects or downgrades** disallowed requests. It is the `ModelPolicy` check, moved from
+in-process to network egress.
+
+- **Gateway options to point them at:** LiteLLM, Portkey, Cloudflare AI Gateway, Kong AI Gateway, or
+  homegrown. All do identity-aware model allow/deny + budgets + logging.
+- **The linchpin — close the bypass.** The gateway is only a control if it is the *only* path:
+  the client must **block direct egress** to `api.openai.com` / `api.anthropic.com` / etc. at the
+  firewall, exactly as the harness's model policy is only real because the LLM can't supply its own
+  policy. A gateway with an open bypass is a suggestion, not a control. **This is the single point
+  clients most often miss — lead with it.**
+- **Identity is the spine.** "Salespeople" is a group in Okta / Entra / Google Workspace; every ring
+  keys its policy off that group. If the client wants the policy authored once and enforced
+  everywhere, that is a policy engine (OPA / Cedar) the gateway queries.
+- **Bonus they already understand from Ring 1:** the gateway's allow/deny/downgrade logs are the
+  company-wide version of our **harness-intervention-rate** metric (see *Fleet Operation*) — same
+  "was that a real catch or a too-tight limit?" telemetry, scaled to the whole org.
+
+### Ring 3 — where the salesperson-and-presentation example actually lives (hardest)
+
+The catch that makes the classic question hard: a salesperson in ChatGPT or Gamma **isn't touching
+any API the client owns**, so a gateway is useless here. Enforcement splits by whether the tool is
+sanctioned:
+
+- **Sanctioned tool → vendor admin console.** ChatGPT Enterprise, Claude Enterprise, and M365
+  Copilot expose SSO/SCIM and — increasingly, but *not* universally — **per-group model gating**. So
+  "sales gets the mid tier, not the frontier reasoning model" can be a workspace admin setting *if
+  the vendor sells that control.* This is really a **procurement lever**: buy the SKU that exposes
+  the gating you need, and negotiate for it when it doesn't.
+- **Unsanctioned / shadow AI → the network.** Personal ChatGPT accounts and free Claude can't be
+  configured (you don't control the product), so control falls to a **CASB** (Netskope, Zscaler,
+  Palo Alto Prisma) that recognizes AI-SaaS traffic and blocks/coaches by user identity, plus
+  **tenant restrictions** (Entra tenant restrictions / Google context-aware access) that allow the
+  *corporate tenant* of a tool while blocking personal logins.
+
+### Before recommending any of it — interrogate the "why"
+
+The right lever depends on the client's actual goal, and "cap the tier" is frequently **not** it.
+Diagnose first:
+
+| Client's real concern | Correct primary lever | Note |
+|---|---|---|
+| **Cost** (frontier is expensive) | Gateway **downgrade + per-group budgets** (Ring 2) | Prefer downgrade over hard block — denial breeds workarounds |
+| **Data governance** (sensitive data leaving to certain vendors) | **DLP + approved-vendor allowlist** | Model *tier* is nearly a red herring here; the concern is the endpoint and the data |
+| **Quality / brand** (presentations must use approved templates) | A **tooling mandate**, not a model control | Not a harness/gateway problem at all |
+| **Capability gating** (this role shouldn't have frontier reasoning) | Ring 2/3 tier caps | The rarest; worth challenging whether it's the real requirement |
+
+### The part clients underestimate — and our standing recommendation
+
+Ring 3 is **never watertight**, and a pure "no" **manufactures shadow AI** (block the frontier tool
+with no alternative and people use their phones). The pattern that actually holds company-wide is
+enforcement **paired with a sanctioned, good-enough path**: give the group an approved mid-tier tool
+that does the job, gate the frontier one, and **audit the residual**. That is the same posture the
+harness takes at Ring 1 — bound the blast radius, log every intervention, and treat a recurring
+block as a signal the limit may be mis-set, not an automatic win.
+
+**Consulting note:** this whole section is a QBiz advisory surface, not a harness feature —
+"model-tier entitlements and AI-usage governance, company-wide" is a natural companion to the
+readiness-assessment work. When a client asks the salesperson question, the deliverable is this
+ring model and the tool pointers above, **not** a promise to extend the harness.
 
 ---
 
@@ -321,12 +416,119 @@ The cost optimization waterfall (apply before any LLM call):
 2. **Is the result already cached from a prior run?** → Retrieve it. Near-zero cost.
 3. **Does this require LLM reasoning?** → Route to smallest capable model (Haiku/Flash/mini tier).
 4. **Does this require complex judgment or adversarial evaluation?** → Escalate to frontier model.
+
+   Steps 3–4 are the *routing* decision; the **Model-Tier Policy** (below) is what makes it
+   *enforceable* — the router picks the model, the policy caps what it is allowed to pick per activity.
 5. **Hitting spend threshold?** → Pause, fire HITL checkpoint, wait for human to continue or cancel.
 
 **Still to specify:** cache invalidation strategy (when is a cached result still valid?),
-what "smallest capable model" means per task type (needs empirical benchmarking), pre-call token
-estimation (tiktoken or similar), and the cost of the harness itself (the evaluator adds a full
-API call per run).
+what "smallest capable model" means per task type (needs empirical benchmarking — now owned by the
+**Model-Tier Policy** below), pre-call token estimation (tiktoken or similar), and the cost of the
+harness itself (the evaluator adds a full API call per run).
+
+---
+
+### Component (extension of 5) — Model-Tier Policy
+**Type:** Custom Python — `src/qbiz_harness/model_policy.py`
+**Size:** ~75 lines + per-cohort model config
+
+Like the audit log, this is **not one of the Vision's eight** — it is an engineering refinement to
+the *cost & compute governance* dimension (Component 5), which is why it lives next to
+`cost_governor.py`. Model choice is the single biggest cost-and-capability lever an agent has, so
+the harness governs it the way it governs spend and action counts: **enforce a bound in code, don't
+let the model reason its way past it.** ("Instructions are a request; the harness is enforcement" —
+a step *told* to use a weak model can decide otherwise; a tier *cap* cannot be reasoned around.)
+
+**Enforce, not route.** The launcher/orchestrator still *picks* which model runs a step — routing is
+reasoning-adjacent and stays out of the harness. The harness *caps* that choice: each activity
+declares an allowed tier band, and a call requesting a model outside the band is rejected **before**
+the API call, exactly as `CostGovernor.pre_call` rejects an over-budget call. A weak-tier "file a
+Jira ticket" step cannot escalate itself to a frontier model; an investigation step cannot be
+silently downgraded below its floor.
+
+Motivating case (the Airflow demo): incident *investigation* runs at MID (Sonnet / Gemini Pro) with
+reasoning latitude; the mechanical steps — open Jira ticket, post Slack message, status update — are
+capped at WEAK (Haiku / Flash). Same DAG, one tier band per activity. This also *closes the loop*
+with the `agent-harness` skill, whose `CLAUDE.md`/`GEMINI.md` already tell the model which tier to
+use per task type: the skill advises the tier, this component enforces it.
+
+**Tiers are provider-agnostic ordinals.** `WEAK < MID < FRONTIER`. Concrete models map to a tier via
+config (`[D8]`), never hardcoded — forced by the open provider question `[D3]` (Qbiz may run Gemini,
+not Claude): `weak: [claude-haiku-*, gemini-flash-*]`, `mid: [claude-sonnet-*, gemini-pro-*]`,
+`frontier: [claude-opus-*]`. The guard resolves a concrete model string to its tier, then compares
+ordinals — so the same band works across providers.
+
+Two bounds, deliberately different strengths:
+- **Ceiling (`max_tier`) — hard, always enforced.** Cost / blast-radius. The ironclad, demoable
+  guarantee: *a trivial step can never burn a frontier model.*
+- **Floor (`min_tier`) — template default, opt-in-hard.** Quality. "Don't investigate an incident
+  with a weak model." But "too weak" is a *judgment*, not a safety boundary — the real quality
+  backstop is the evaluator (Component 7). So the floor ships as a cohort/template default that a
+  specific activity can promote to a hard reject when the quality risk warrants it.
+
+```python
+class Tier(IntEnum):
+    WEAK = 1
+    MID = 2
+    FRONTIER = 3
+
+class ModelPolicy:
+    """Caps the model tier per activity. Policy comes only from construction-time config — never
+    from LLM output — so no reasoning can widen it. Mirrors CostGovernor.pre_call: the check fires
+    before the API call, so the wrong-tier call never happens."""
+
+    def __init__(self, tier_map: dict[str, Tier], activities: dict[str, ActivityBand]):
+        self._tier_of = tier_map          # concrete model name -> Tier
+        self._bands = activities          # activity -> (min_tier, max_tier, floor_hard)
+
+    def check(self, activity: str, model: str) -> None:
+        tier = self._tier_of.get(model)
+        if tier is None:                                   # fail closed: ungoverned model
+            raise ModelPolicyError(f"Model {model!r} is not tier-mapped; refusing (ungoverned)")
+        band = self._bands.get(activity)
+        if band is None:                                   # fail closed: ungoverned activity
+            raise ModelPolicyError(f"No model band for activity {activity!r}; refusing")
+        if tier > band.max_tier:
+            raise ModelPolicyError(
+                f"{activity!r} permits at most {band.max_tier.name}; {model!r} is {tier.name}"
+            )
+        if band.floor_hard and tier < band.min_tier:
+            raise ModelPolicyError(
+                f"{activity!r} requires at least {band.min_tier.name}; {model!r} is {tier.name}"
+            )
+```
+
+`ModelPolicyError` is a new leaf on the `HarnessError` hierarchy (`exceptions.py`), so the call-site
+exception boundary stamps a `harness_intervention` audit event automatically (see Fleet Operation).
+
+**The two inputs that must not come from the LLM.** `activity` is a *structural* label supplied by
+the orchestrator (which node in the DAG is running), never parsed from model output — same principle
+as `agent_id` in Component 3. And the *policy* (`tier_map`, `activities`) is construction-time config
+injected by the launcher, exactly like the cost caps. The only thing the agent/router supplies is the
+*requested* `model` — precisely what the guard is there to bound. Because the policy is not
+LLM-derived, this needs **no** dependency on the `[D1]` identity decision: like `CostGovernor`, the
+launcher constructs it with the right policy for the run. (At fleet scale the policy is selected per
+cohort from the manifest, so it inherits identity there the same way everything else does.)
+
+**Call-site ordering.** Model first, then budget: `model_policy.check(activity, model)` →
+`cost_governor.pre_call(est_tokens)` (the token estimate depends on the chosen model) → the call. A
+rejected tier never reaches the token estimator.
+
+**Downgrade is compliance, not evasion.** A raised `ModelPolicyError` *may* be handled by the router
+choosing a compliant lower model and retrying — that is routing selecting a legal option. What is
+forbidden (the skill's standing rule: never route around a raised `HarnessError`) is catching the
+error and re-calling with the *same* over-tier model, or widening the policy at runtime. Record the
+intervention either way.
+
+**Composes with, does not replace, the spend cap.** `ModelPolicy` bounds per-call
+*capability/unit-cost*; `CostGovernor` bounds *cumulative* spend and action counts. An agent can stay
+under the frontier ceiling and still blow the dollar cap by looping — both guards fire independently.
+
+**Still to specify:** the tier taxonomy and provider→tier map (`[D8]`, couples to `[D3]`); the
+empirical benchmarking that sets *which* activities can sit at WEAK without quality loss (this is the
+"what 'smallest capable model' means per task type" open item from Component 5, now owned here); and
+whether an unmapped-but-newer model of a known family resolves by prefix or stays fail-closed
+(default: **fail-closed** — an unmapped model is an ungoverned model).
 
 ---
 
@@ -464,7 +666,8 @@ not a log file.** For any HIGH+ agent:
 ## Components Are Opt-In at the Call Site
 
 The harness does **not** wrap every LLM call identically.
-- **Always-on:** Components 1 (input wrapper), 2 (output validator), 5 (cost governor).
+- **Always-on:** Components 1 (input wrapper), 2 (output validator), 5 (cost governor — and its
+  **Model-Tier Policy** extension, wherever a step selects among models).
 - **Risk-gated:** Components 3 (access control), 7 (evaluator), 8 (HITL) fire based on the risk
   profile of the *specific action* — listing channels is low-stakes; approving a production
   rollback needs all of them.
@@ -483,7 +686,9 @@ Right-size the harness to the use case. Not every agent needs all eight componen
 | VERY HIGH | Regulated industry — financial, healthcare, irreversible actions | All eight + compliance documentation + red team | Gates 1–2–3 |
 
 **The Agentic Incident DAG (Airflow Summit demo) is HIGH** — it writes to Slack and creates
-Jira tickets. Minimum: Components 1, 2, 3, 5, 6, 8 + audit trail.
+Jira tickets. Minimum: Components 1, 2, 3, 5, 6, 8 + audit trail. Its **model-tier bands** (Component
+5 extension) are the demo's showcase for this feature: investigation at MID, ticket/Slack/status
+steps capped at WEAK.
 
 ### Worked examples
 
@@ -586,7 +791,7 @@ exception boundary is exactly where an intervention is stamped. Extend the audit
 | Field | Purpose |
 |---|---|
 | `event_type` | `agent_action` / `harness_intervention` / `hitl_decision` / `evaluator_flag` — the in-band vs. intervention split |
-| `intervention` | on interventions: which component fired and what it prevented (e.g. `cost_governor: capped messages_sent at 20`) |
+| `intervention` | on interventions: which component fired and what it prevented (e.g. `cost_governor: capped messages_sent at 20`, or `model_policy: blocked FRONTIER on file_ticket (max WEAK)`) |
 | `incident_id` | correlation/trace id stitching one incident across watcher → reasoning → tool calls → interventions → HITL → resolution |
 | `cohort`, `job_id` | fleet attribution — which cohort/job an event belongs to |
 
@@ -595,7 +800,9 @@ exception boundary is exactly where an intervention is stamped. Extend the audit
 - **Per incident:** "Job X failed → `finance-HIGH` agent diagnosed → tried 50 Slack msgs → cost
   governor capped at 20 → escalated to human → approved rollback."
 - **Aggregate (week):** "312 incidents across 100 jobs; agents handled 280 in-band; harness intervened
-  32× (18 cost caps, 9 loop guards, 5 HITL rejections)."
+  32× (18 cost caps, 9 loop guards, 5 HITL rejections)." Where model bands are set, "N model-tier
+  blocks" joins that line — and a *recurring* block on one activity is the signal that its band is
+  mis-set, exactly the false-positive-label case below.
 
 The **harness intervention rate is a product metric** — the empirical measure of how often the harness
 earned its keep, and a strong Summit/client artifact ("over 30 days the harness caught N runaway loops
@@ -694,6 +901,27 @@ and is the sensible first deliverable. `[D7]` settles the classification source.
 - Hard limit enforcement — test that cost/token governors fire at the configured threshold
 - Audit logging validation — confirm every action type produces a log entry
 - Tool schema consistency — MCP schema matches actual Python function signatures
+- **Model-tier enforcement** — the checks-and-balances suite for `model_policy.py`:
+  - **Ceiling is hard:** a request one tier above `max_tier` raises `ModelPolicyError` *before* any
+    API call; a request at or below `max_tier` passes.
+  - **Floor when hard:** a request below a `floor_hard` activity's `min_tier` raises; at/above passes.
+    A soft floor does *not* raise (it is a default, not a boundary).
+  - **Cross-provider parity:** `claude-haiku-*` and `gemini-flash-*` both resolve to `WEAK`, so a
+    `max_tier: WEAK` band admits either and a `MID` step rejects both providers' frontier models —
+    proving the band is provider-agnostic, not Claude-specific.
+  - **Fail-closed on the unknown:** an unmapped model string, and an unmapped `activity`, both raise
+    (an ungoverned model/activity is never silently allowed).
+  - **Policy is not LLM-widenable:** the guard reads only construction-time `tier_map`/`activities`;
+    a test confirms no input-/output-derived value can raise the effective ceiling (immutable policy).
+  - **`activity` is structural:** the label the guard keys on comes from the orchestrator, asserted
+    in the reference wiring — never from model output.
+  - **Evaluator different-model rule stays satisfiable:** config-time validation fails a cohort whose
+    band for an evaluated activity admits only one concrete model (Component 7 requires the evaluator
+    to be a *different* model than the primary — an over-tight band that makes that impossible is a
+    build error, not a runtime surprise).
+  - **Call-site order + audit:** in the reference wiring `model_policy.check` runs before
+    `cost_governor.pre_call`, and a rejection emits exactly one `harness_intervention` audit event
+    with `component=model_policy` and the `prevented` detail; an allowed call emits none.
 
 ### Gate 2 — Evaluator Agent
 
@@ -726,17 +954,19 @@ qbiz-agents/
 │   │   ├── access_controls.py      # Component 3 (blocked on identity decision)
 │   │   ├── memory.py               # Component 4 (only if shared backend)
 │   │   ├── cost_governor.py        # Component 5
+│   │   ├── model_policy.py         # Component 5 extension — per-activity model-tier cap
 │   │   ├── orchestration.py        # Component 6
 │   │   ├── hitl.py                 # Component 8
 │   │   └── audit.py                # cross-cutting audit log
 │   └── tests/                      # Gate 1 lives here
 ├── agents/                         # per-agent config (no harness code changes)
 │   ├── fleet.yaml                  # fleet manifest: job → cohort → agent_id (see Fleet Operation)
-│   ├── _defaults.yaml              # org-wide policy defaults (inherited by all cohorts)
-│   ├── _templates/<risk_tier>.yaml # cohort templates by risk tier (inherited + overridden)
+│   ├── _defaults.yaml              # org-wide policy defaults (inherited by all cohorts) — incl. model tier_map [D8]
+│   ├── _templates/<risk_tier>.yaml # cohort templates by risk tier (inherited + overridden) — incl. default model bands
 │   └── <cohort_name>/              # per-cohort overrides
 │       ├── permissions.yaml        # which tools this cohort can call
 │       ├── limits.yaml             # token budget, spend cap, retry limits, timeouts
+│       ├── models.yaml             # per-activity model-tier bands (min/max/floor_hard) — Component 5 ext.
 │       ├── evaluator_rubric.md     # Component 7 adversarial prompt
 │       └── AGENTS.md               # agent identity, scope, operating rules (versioned)
 └── mcp/                            # existing MCP servers (Slack, Astro/Airflow, …)
@@ -765,6 +995,12 @@ These need no pending decision and no per-agent input — build now, in any orde
 - [x] **Component 6 — Orchestration Controls** (`orchestration.py`): retry/backoff, loop guard,
       fallback paths. Engineering detail to settle in-code: per-tool timeouts (not a blocker).
       *Done — per-call timeout is a call-site arg; tests in `tests/test_orchestration.py`.*
+- [ ] **Component 5 extension — Model-Tier Policy** (`model_policy.py`): provider-agnostic
+      `Tier` ordinals + per-activity `ModelPolicy.check(activity, model)`; new `ModelPolicyError` on
+      the `HarnessError` hierarchy. Agent-agnostic and **unblocked** — like `CostGovernor`, the
+      launcher constructs it with config; needs no `[D1]`. The *primitive* ships here; the concrete
+      tier taxonomy/provider map is `[D8]` (couples to `[D3]`) and the per-cohort bands are authored
+      in Phase 7. Gate 1 threshold tests land with it (see Gate 1).
 - [x] **Cross-cutting Audit Log** (`audit.py`): structured append-only event writer. Everything
       below logs through it, so build it here. Demo can use local append-only JSON; production
       storage backend is `[D4]` and not needed yet. *Done — local JSONL; tests in
@@ -827,6 +1063,11 @@ Direction set 2026-06-19 (Scott Mitchell). See **Fleet Operation** for the full 
 - [ ] **Fleet manifest + config inheritance:** `agents/fleet.yaml` (job → cohort → agent_id) plus
       org-defaults → cohort-template → per-cohort-override resolution. Couples to `[D1]`
       (launcher-assigned identity from the manifest).
+- [ ] **Per-cohort model bands + tier taxonomy `[D8]`:** the org `tier_map` in `_defaults.yaml`,
+      default bands in the risk-tier templates, and per-activity overrides in each cohort's
+      `models.yaml` — resolved through the same inheritance chain as everything else. Needs the
+      `model_policy.py` primitive (Phase 1) and the taxonomy decision `[D8]`. The empirical
+      benchmarking that fixes *which* activities are safe at WEAK feeds these values.
 - [ ] **Watcher tier:** wire Airflow `on_failure_callback` / SLA-miss hooks to invoke a
       harness-wrapped reasoning agent per incident under its cohort `agent_id`.
 
@@ -855,6 +1096,7 @@ are **ours to make** at build time.
 | **D5** | **Injection-screening dependency** — regex-only vs. Guardrails AI vs. Rebuff. | Full Component 1 (Phase 2) | At Phase 2. Ship regex-only first; add a library later if needed. | Ours. *Decide at build time.* |
 | **D6** | **HITL timeout policy (per agent)** — fail-closed / fail-open / escalate. | Per-agent config, **not** the Component 8 mechanism | At each agent's config time. **Default fail-closed for HIGH+.** | Ours. *Per-agent, default exists.* |
 | **D7** | **Data-classification source & data-level access-control scope** — where the harness reads per-object sensitivity at runtime (dbt `manifest.json` / `catalog.json` `meta` vs. a dbt MCP surface), and how far data-object access control (J1) extends (schema / table / column). Client policy overrides the QBiz baseline taxonomy. | J1–J6 (data-sensitivity guardrails); sharpens `[D1]` | Before building data-level guardrails; consumer (`qbiz_dbt_startup_kit`) is waiting on it. See **Data Sensitivity Classification** above. | Team + ours. *New (2026-07-08); design in that kit's `docs/DATA_SENSITIVITY_PROPOSAL.md`.* |
+| **D8** | **Model-tier taxonomy + provider→tier map** — the concrete `WEAK/MID/FRONTIER` bands and which model IDs map to each (couples to `[D3]`: the provider list depends on whether we run Claude, Gemini, or both). Also: default soft vs. hard floor per risk tier. | Per-cohort model bands (Phase 7). **Not** the `model_policy.py` primitive (Phase 1), which is taxonomy-agnostic. | At Phase 7 config authoring. The primitive ships without it; bands can start conservative (everything MID) and tighten as benchmarking lands. | Ours, but *waits on `[D3]`'s provider answer* for the concrete map. *Safe default: everything MID until benchmarked.* |
 
 **The two that actually pace us are D1 and D3** — both are team decisions and both are on the
 critical path to *client* work (not the demo, which can proceed without full LLM capability). D2
