@@ -48,13 +48,21 @@ class ActivityBand:
       one that produced it (Component 7's evaluator rule). `ModelPolicy` validates at
       construction time that a band making this claim actually admits more than one concrete
       model — otherwise the evaluator rule can never be satisfied, which is a config bug, not
-      something that should surface as a confusing runtime failure later.
+      something that should surface as a confusing runtime failure later. Validated only —
+      `check()` does not yet enforce that the evaluator's model differs from the primary's;
+      that lands with Component 7.
     """
 
     max_tier: Tier
     min_tier: Tier = Tier.WEAK
     floor_hard: bool = False
     requires_multi_model: bool = False
+
+    def __post_init__(self) -> None:
+        if self.min_tier > self.max_tier:
+            raise ModelPolicyError(
+                f"invalid band: min_tier={self.min_tier.name} exceeds max_tier={self.max_tier.name}"
+            )
 
 
 class ModelPolicy:
@@ -74,7 +82,10 @@ class ModelPolicy:
         tier_map: dict[str, Tier],
         activities: dict[str, ActivityBand],
     ) -> None:
-        self._tier_of = dict(tier_map)
+        try:
+            self._tier_of = {model: Tier(tier) for model, tier in tier_map.items()}
+        except ValueError as exc:
+            raise ModelPolicyError(f"invalid tier_map entry: {exc}") from exc
         self._bands = dict(activities)
         self._validate_evaluator_bands()
 
@@ -89,7 +100,7 @@ class ModelPolicy:
             admitted = [
                 model
                 for model, tier in self._tier_of.items()
-                if band.min_tier <= tier <= band.max_tier
+                if tier <= band.max_tier and (not band.floor_hard or tier >= band.min_tier)
             ]
             if len(admitted) < 2:
                 raise ModelPolicyError(

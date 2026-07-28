@@ -13,6 +13,10 @@ Phase 1 foundational components are in (the unblocked, decision-independent ones
 - `src/qbiz_harness/exceptions.py` — the `HarnessError` hierarchy every component raises through.
 - `src/qbiz_harness/cost_governor.py` — **Component 5**: token/spend caps, action-count limits,
   kill switch, redundancy detection.
+- `src/qbiz_harness/model_policy.py` — **Component 5 extension**: `ModelPolicy` caps the model tier
+  (`Tier.WEAK`/`MID`/`FRONTIER`) each activity is allowed to run with, via a per-activity
+  `ActivityBand` (hard ceiling, optional hard/soft floor, evaluator different-model validation).
+  Provider-agnostic and enforced before the API call, same as `CostGovernor.pre_call`.
 - `src/qbiz_harness/orchestration.py` — **Component 6**: bounded retry/backoff, per-call timeout,
   loop guard.
 - `src/qbiz_harness/output_validator.py` — **Component 2**: mechanical output checks — format/schema
@@ -56,6 +60,7 @@ as an intervention, and routes to a fallback (re-prompt, escalate, or halt).
 | Control | Import | Use it to |
 |---|---|---|
 | **Cost & action caps** (Component 5) | `CostGovernor` | Cap tokens, USD spend, and per-action-kind counts (messages sent, records touched); kill switch; refuse redundant work. |
+| **Model-tier policy** (Component 5 ext.) | `ModelPolicy`, `Tier`, `ActivityBand` | Cap which model tier an activity may use (hard ceiling, optional hard/soft floor); reject before the call, provider-agnostic. |
 | **Output validation** (Component 2) | `validate_output` / `inspect_output` | Check the model's output shape, block hallucinated/out-of-allowlist tool calls, flag out-of-scope systems. |
 | **Loop & retry control** (Component 6) | `LoopGuard`, `with_retry` | Bound reasoning-loop iterations; give async steps bounded retries with backoff and a per-call timeout. |
 | **Human approval** (Component 8) | `hitl_checkpoint` | Block on a human ✅/❌ before an irreversible action. Needs an `ApprovalTransport` (the Slack MCP provides one). |
@@ -76,6 +81,10 @@ from qbiz_harness import (
     BudgetExceededError,
     hitl_checkpoint,
     TimeoutPolicy,
+    ModelPolicy,
+    ModelPolicyError,
+    Tier,
+    ActivityBand,
 )
 ```
 
@@ -142,6 +151,28 @@ decision = await hitl_checkpoint(
 audit.record(agent_id=AGENT_ID, action="rollback", decision=decision.decision, user=decision.user)
 if decision:            # truthy only if approved
     do_the_rollback()
+```
+
+### Capping model tier per activity
+
+`ModelPolicy` caps which model tier a step may use, checked *before* `governor.pre_call` so a
+rejected tier never reaches the token estimator (same call-site order as every other guard):
+
+```python
+policy = ModelPolicy(
+    tier_map={"claude-haiku-4": Tier.WEAK, "claude-sonnet-5": Tier.MID, "claude-opus-5": Tier.FRONTIER},
+    activities={"file_ticket": ActivityBand(max_tier=Tier.WEAK)},  # trivial step, hard ceiling
+)
+
+try:
+    policy.check("file_ticket", requested_model)  # activity is structural — from the orchestrator, never model output
+    governor.pre_call(estimated_tokens=...)
+except ModelPolicyError as exc:
+    audit.record_intervention(
+        agent_id=AGENT_ID, action=f"call:file_ticket",
+        component="model_policy", prevented=str(exc),
+    )
+    return
 ```
 
 ### Recording interventions for fleet monitoring

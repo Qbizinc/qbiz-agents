@@ -16,6 +16,7 @@ from qbiz_harness import (
     ModelPolicyError,
     Tier,
 )
+from qbiz_harness.exceptions import HarnessError
 
 _TIER_MAP = {
     "claude-haiku-4": Tier.WEAK,
@@ -121,10 +122,13 @@ def test_mutating_caller_dicts_after_construction_does_not_affect_policy():
 
 def test_model_policy_exposes_no_public_mutator():
     """The only way to change what a ModelPolicy allows is to construct a new one — there is no
-    setter a caller (or a model, indirectly) could invoke at runtime to widen the ceiling."""
+    setter a caller (or a model, indirectly) could invoke at runtime to widen the ceiling. Read-only
+    accessors (e.g. a future `allowed_models(activity)` for the downgrade-retry path) are fine;
+    only mutators are disallowed."""
     policy = _policy(file_ticket=ActivityBand(max_tier=Tier.WEAK))
+    mutator_names = {"set", "update", "widen", "add", "remove", "delete", "clear"}
     public_attrs = [a for a in dir(policy) if not a.startswith("_")]
-    assert public_attrs == ["check"]
+    assert not any(name.startswith(tuple(mutator_names)) for name in public_attrs)
 
 
 # --- evaluator different-model rule stays satisfiable ----------------------------------------
@@ -151,6 +155,56 @@ def test_construction_succeeds_when_evaluator_band_admits_two_or_more_models():
         review=ActivityBand(max_tier=Tier.MID, requires_multi_model=True)
     )  # claude-sonnet-5 and gemini-pro-2 both fit MID
     policy.check("review", "claude-sonnet-5")
+
+
+# --- ModelPolicyError is part of the HarnessError boundary -------------------------------------
+
+
+def test_model_policy_error_is_a_harness_error():
+    """The entire point of the leaf: a caller can `except HarnessError` once and still catch a
+    model-tier rejection, so the call-site boundary and audit stamping both work unmodified."""
+    assert issubclass(ModelPolicyError, HarnessError)
+
+
+# --- construction-time validation beyond the evaluator rule -------------------------------------
+
+
+def test_construction_fails_when_min_tier_exceeds_max_tier():
+    """An inverted band would otherwise construct cleanly and reject every model at runtime —
+    half by the ceiling, half by the floor. Caught at construction instead."""
+    with pytest.raises(ModelPolicyError):
+        ActivityBand(max_tier=Tier.WEAK, min_tier=Tier.FRONTIER, floor_hard=True)
+
+
+def test_construction_fails_on_non_tier_value_in_tier_map():
+    """A raw int (e.g. from YAML config per [D8]) must be coerced/rejected at construction, not
+    survive ordinal comparisons and die later on `tier.name` with a bare AttributeError that
+    escapes the HarnessError boundary and skips audit stamping."""
+    with pytest.raises(ModelPolicyError):
+        ModelPolicy(
+            tier_map={"weird-model": 99},
+            activities={"file_ticket": ActivityBand(max_tier=Tier.WEAK)},
+        )
+
+
+def test_evaluator_band_validation_mirrors_soft_floor_at_check_time():
+    """A soft floor (`floor_hard=False`) admits models below `min_tier` at `check()` time, so the
+    construction-time evaluator-admission count must count them too — otherwise a satisfiable
+    config is rejected as if the floor were hard."""
+    tier_map = {"claude-sonnet-5": Tier.MID, "claude-opus-5": Tier.FRONTIER}
+    # Soft floor: MID is below min_tier but admitted at check() time, so two models qualify.
+    policy = ModelPolicy(
+        tier_map=tier_map,
+        activities={
+            "review": ActivityBand(
+                max_tier=Tier.FRONTIER,
+                min_tier=Tier.FRONTIER,
+                floor_hard=False,
+                requires_multi_model=True,
+            )
+        },
+    )
+    policy.check("review", "claude-sonnet-5")  # below min_tier, but floor is soft — no raise
 
 
 # --- call-site order + audit (reference wiring) -----------------------------------------------
@@ -196,3 +250,29 @@ def test_reference_wiring_order_and_single_audit_intervention_on_rejection():
     assert len(audit.events) == 2
     assert audit.events[1].intervention is not None
     assert audit.events[1].intervention.component == "model_policy"
+
+
+def test_reference_wiring_activity_is_structural_not_model_derived():
+    """`activity` must come from the orchestrator (which DAG node is running), never from
+    parsing the model's own output — the same principle as `agent_id` elsewhere in the harness.
+    Simulate a model response that tries to smuggle a different activity label; the reference
+    wiring only ever keys off the orchestrator-supplied `activity` argument, so the smuggled
+    value has no effect on which band is enforced."""
+    policy = _policy(
+        file_ticket=ActivityBand(max_tier=Tier.WEAK),
+        deploy=ActivityBand(max_tier=Tier.FRONTIER),
+    )
+
+    def run_step(activity: str, model: str, model_output: dict) -> None:
+        # `check` is called with the orchestrator's `activity` argument; `model_output` (what a
+        # model might claim about its own step) is never consulted for it.
+        policy.check(activity, model)
+
+    # Orchestrator says this step is the tightly-banded "file_ticket", regardless of what the
+    # model's own output claims about itself.
+    with pytest.raises(ModelPolicyError):
+        run_step(
+            "file_ticket",
+            "claude-opus-5",
+            model_output={"activity": "deploy"},  # smuggled — must not widen the effective band
+        )
