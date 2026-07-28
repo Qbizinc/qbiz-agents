@@ -169,7 +169,7 @@ try:
     governor.pre_call(estimated_tokens=...)
 except ModelPolicyError as exc:
     audit.record_intervention(
-        agent_id=AGENT_ID, action=f"call:file_ticket",
+        agent_id=AGENT_ID, action="call:file_ticket",
         component="model_policy", prevented=str(exc),
     )
     return

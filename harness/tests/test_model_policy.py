@@ -122,13 +122,15 @@ def test_mutating_caller_dicts_after_construction_does_not_affect_policy():
 
 def test_model_policy_exposes_no_public_mutator():
     """The only way to change what a ModelPolicy allows is to construct a new one — there is no
-    setter a caller (or a model, indirectly) could invoke at runtime to widen the ceiling. Read-only
-    accessors (e.g. a future `allowed_models(activity)` for the downgrade-retry path) are fine;
-    only mutators are disallowed."""
+    setter a caller (or a model, indirectly) could invoke at runtime to widen the ceiling. An
+    allowlist, not equality with a fixed list: a future read-only accessor (e.g.
+    `allowed_models(activity)` for the downgrade-retry path) is a one-line addition here, but
+    anything else appearing on an enforcement primitive's public surface should fail loudly and
+    put a human in the loop."""
+    KNOWN_READ_ONLY = {"check"}  # add here deliberately, with a note on why it's read-only
     policy = _policy(file_ticket=ActivityBand(max_tier=Tier.WEAK))
-    mutator_names = {"set", "update", "widen", "add", "remove", "delete", "clear"}
-    public_attrs = [a for a in dir(policy) if not a.startswith("_")]
-    assert not any(name.startswith(tuple(mutator_names)) for name in public_attrs)
+    public_attrs = {a for a in dir(policy) if not a.startswith("_")}
+    assert public_attrs <= KNOWN_READ_ONLY
 
 
 # --- evaluator different-model rule stays satisfiable ----------------------------------------
