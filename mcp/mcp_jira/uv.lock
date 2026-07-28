@@ -645,7 +645,7 @@ dependencies = [
 requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "jira", specifier = ">=3.10.5" },
-    { name = "mcp", specifier = ">=1.28.0" },
+    { name = "mcp", specifier = ">=1.28.0,<2.0.0" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
 ]
