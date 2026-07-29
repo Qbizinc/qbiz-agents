@@ -130,6 +130,8 @@ so plainly rather than overselling. This framing is load-bearing for client conv
 | **Hallucination** | **Meaningful containment** | Output validator catches hallucinated tool calls and references to nonexistent data; evaluator catches semantically wrong output. The root cause lives in the model — the harness bounds the blast radius, it does not cure it. |
 | **Bias & drift** | **Backstop, not primary fix** | Evaluator can be tuned to flag biased/drifting output and human review catches the rest, but the primary fix is model selection and instruction quality. The harness is the safety net, not the solution. |
 | **Runaway behavior & cost** | **Strong** | Rate limits, spend caps, action limits, and kill switches stop an agent spiraling or racking up compute; orchestration controls prevent deadlock and infinite loops; the model-tier policy caps per-activity model strength so a trivial step cannot self-escalate to a frontier model. |
+| **Sensitive data reaching the wrong endpoint** | **Strong** | Egress allowlist (J9) + the `default_confidential` admission gate (J7) are in-process chokepoints the model cannot route around, and the attestation ledger makes the boundary auditable. Note this is a **coverage** guarantee — *nothing crossed unattested* — not a correctness one. |
+| **Confidential content inside approved data** | **Weak — do not sell this** | We can strip what is *declared* sensitive (J2) and what is *well-formed* (keys, card numbers, SSNs). Recognizing confidentiality in free-text prose — *"the Henderson acquisition closes in March at $40M"* — is not reliably detectable, and a redactor that misses some of it is worse than none because it retires the client's own caution. The answer is the admission gate (clear what is safe) plus the endpoint control, **not** better detection. |
 
 The takeaway for positioning: higher risk does not mean "no" — it means the architecture has to
 earn the trust. What the harness *cannot* fix (model-rooted bias, fundamental hallucination
@@ -880,14 +882,163 @@ feeds kit-derived classification into the controls at its call site.
 | **J4** | **Classification in the audit schema** — record the sensitivity level/category of data each action touched, so "did any agent touch PII this week?" is queryable at fleet scale. | **New audit fields** — not in the current `{agent_id, action, …, event_type, intervention, incident_id, cohort, job_id}` schema. Additive. |
 | **J5** | **Classification-driven auto risk-tiering** — an agent whose reachable data includes `restricted`/PII is automatically HIGH+ (VERY HIGH if regulated), pulling in evaluator + HITL + red-team gates. | **Mechanizes Risk Tiering** — today the tier is assigned by judgment; this derives a *floor* from the data in scope. |
 | **J6** | **Classification provider/loader** — a shared interface the above consult to resolve an object's classification at runtime (from the dbt manifest/catalog, or a dbt MCP surface). | **New shared infrastructure.** Source is an open decision — see `[D7]`. |
+| **J7** | **Content admission gate (`default_confidential` mode)** — an engagement-level posture where *nothing* reaches the model until it has been either attested clean by a human or cleared by deterministic checkers. Refusal, not redaction, is the default action. | **New / extends Component 1.** J2 redacts what is *declared* sensitive; J7 inverts the burden — content is confidential until something says otherwise. See **Content Admission** below. |
+| **J8** | **Attestation ledger** — the record of which artifacts were cleared, by whom or by which checker version, over which content hash, and when it expires. | **New shared infrastructure**, consumed by J7 and written to the audit log (J4). Content-hash-keyed, so an edited artifact loses its clearance automatically. |
+| **J9** | **Egress endpoint allowlist** — which provider endpoints an agent may call at all, enforced in-process. | **New / extends Component 3**, but a *static per-run* allowlist needs no agent identity, so **unblocked by `[D1]`**. This — not redaction — is the real control for "our data must not reach a non-enterprise endpoint." See **Where the boundary actually is** below. |
 
 **Fail-safe posture:** default-deny / default-redact when an object's
 classification is missing or ambiguous — unclassified is treated as `restricted`,
 never waved through.
 
 **Dependencies & sequencing:** J1 and J5's enforcement sit on `[D1]`
-agent-identity, so this **raises D1's priority**. **J2 (redaction) is unblocked**
-and is the sensible first deliverable. `[D7]` settles the classification source.
+agent-identity, so this **raises D1's priority**. **J2 (redaction), J7/J8
+(admission) and J9 (egress allowlist) are all unblocked** and are the sensible
+first deliverables. `[D7]` settles the classification source.
+
+---
+
+### Where the boundary actually is — endpoint before content
+
+**Consumer-driven (2026-07-28).** The motivating ask: *a client using LLMs to inventory
+documents, without an enterprise agreement, wants confidential material kept out of model
+training.* Taken literally this reads as a redaction request. It mostly isn't one, and getting
+the order right is what keeps us from selling a weak control in place of a strong one.
+
+**Whether payloads train a model is governed by the endpoint and the contract, not by the
+payload's contents.** The major providers do not train on API/commercial-tier inputs by default;
+consumer tiers are where that exposure lives. So the first lever is *which endpoint the agent may
+call* — which is **J9**, deterministic and verifiable — and the second is procurement (buy the
+tier, or a zero-retention endpoint). Content screening is defense-in-depth *behind* those, not a
+substitute for them.
+
+This is the same conclusion the **Enforcement Perimeter** section reaches from the other
+direction: *"the concern is the endpoint and the data,"* not the model tier. Lead every version of
+this client conversation with the endpoint question. A client who fixes the endpoint and skips
+redaction is in a far better position than one who redacts into an untrusted endpoint.
+
+**Order to work the problem, strongest control first:**
+
+1. **Don't send it.** For inventory work especially, a large share of questions are answerable
+   from metadata alone — path, type, size, mtime, hash, structural features. Content that never
+   crosses the boundary needs no control at all.
+2. **Fix the endpoint** (J9 + procurement).
+3. **Gate admission** (J7) — refuse what isn't cleared.
+4. **Redact by declaration** (J2) — mask what the source *tags*.
+5. **Strip well-formed secrets** (the detector below) — narrow, high precision.
+6. **Audit the crossing** (J4) — what left, at what classification, under which clearance.
+
+---
+
+### Content Admission — the `default_confidential` posture
+
+**The idea (David, 2026-07-28):** for some clients, projects, and repos, *confidential* should be
+the standing assumption rather than a classification that has to be discovered. Nothing goes to
+the model without having been either **tagged clean manually** or **cleared by code-based
+checking tools**.
+
+This is a strict generalization of the fail-safe posture above: that rule says an object with a
+*missing* classification is treated as `restricted`; this makes that the **whole engagement's
+default**, so classification is a clearance an artifact earns rather than a hazard the harness has
+to detect. It is the same "enforce, not route" discipline the harness rests on, applied to content
+rather than to model calls — and it is the honest posture, because it depends on knowing what is
+*safe* (tractable) rather than on recognizing what is *dangerous* (not tractable in free text).
+
+**Two admission paths, and only two:**
+
+- **Attested clean** — a human cleared it. Recorded with identity, timestamp, scope, and the
+  content hash it applies to.
+- **Machine-cleared** — it passed the configured deterministic checker set (secret patterns,
+  declared-classification lookup, structural rules).
+
+Anything else is **refused, not redacted.** This is the load-bearing choice: if we cannot
+establish that an artifact is clean, sending a partially-cleaned version and hoping is exactly the
+false-confidence failure this mode exists to prevent. Redaction stays available, but as an
+*opt-in per content class*, never as the fallback for "we couldn't tell."
+
+**Design details that decide whether this actually holds:**
+
+- **Clearance is keyed on content hash, not artifact identity.** Edit the document and it loses
+  its clearance automatically. A path-keyed attestation is a hole that opens silently the first
+  time someone updates a file.
+- **Clearances expire and are scoped.** An artifact cleared for one engagement is not cleared for
+  the next; a clearance from a year ago does not govern today's content. Both are configuration.
+- **Derived content inherits.** Structure extracted locally from a confidential artifact is
+  confidential until separately cleared. Without this rule, the "extract locally, send only the
+  structure" path in the inventory design becomes a laundering channel — the most likely way this
+  mode gets quietly defeated in practice.
+- **Bulk attestation is mandatory, not a convenience.** Directory-, glob-, and label-scoped
+  clearance. Per-file human attestation does not survive contact with an inventory engagement, and
+  a control people cannot comply with is a control they will route around.
+- **Refusals are telemetry, not just failures.** Track an **admission-refusal rate** alongside the
+  existing harness-intervention-rate. A spike means either a real catch or a mis-set policy, and —
+  per the standing recommendation in the Enforcement Perimeter section — a control with no
+  workable sanctioned path manufactures the shadow behavior it was meant to stop.
+- **The classifier cannot be the leak.** If sensitivity is ever assessed by *inspecting* content
+  with a model, that inspection must run on a local/on-prem model or be fully deterministic.
+  Classifying a document by sending it to a hosted LLM defeats the control it implements. Call
+  this out explicitly in any client-facing description; it is not obvious and clients do not
+  anticipate it.
+
+**Config shape** (per-engagement, same posture as `limits.yaml` — never hardcoded):
+
+```yaml
+content_policy:
+  default_confidential: true          # unattested content is refused, not sent
+  admission:
+    accept: [attested, machine_cleared]
+    on_unknown: refuse                # refuse | redact | allow  (allow requires explicit sign-off)
+    derived_content: inherit          # derivatives stay confidential until separately cleared
+  attestation:
+    scope: engagement
+    expires_after_days: 90
+    key: content_hash
+  checkers: [secret_patterns, declared_classification]
+  egress:
+    allowed_endpoints: [...]          # J9 — the control that actually answers the training question
+```
+
+**What this promises — and what it does not.** This is the line to hold in client conversations:
+
+> `default_confidential` makes a **coverage** guarantee, not a **correctness** guarantee. It
+> guarantees that no content crossed the boundary without an explicit clearance, and it can prove
+> which clearance, from the audit trail. It does **not** guarantee that cleared content contained
+> nothing confidential — a human attestation is only as good as the human, and a machine clearance
+> is only as good as its checkers.
+
+That distinction is the whole product. "Nothing crossed unattested, and here is the ledger" is
+provable and genuinely valuable. "Nothing confidential crossed" is not something any tool can
+promise over free text, and claiming it converts *"we were careful"* into *"the tool certified it
+clean"* — strictly worse than no tool, because it retires the client's own caution. Same honest-limits
+posture as Assay's scoring caveats; hold it even when the client is asking us to claim more.
+
+---
+
+### Secret / credential detection — shared module now, own tool only on a trigger
+
+Assay already ships hardcoded-credential detection, and the admission checkers above need the same
+capability. Per the repo-wide DRY rule that is one implementation, not two.
+
+**Now: a module inside `harness/`** (`secret_scan.py`), consumed by Assay. This mirrors
+**Decision 1** — the harness itself is co-located rather than split out for exactly these reasons,
+and the same arithmetic applies one level down: a separate package buys a second CI pipeline, a
+publish step, and cross-repo version pinning while serving in-repo consumers only.
+
+**Do not write the rule corpus from scratch.** Maintained detection rule sets already exist
+(gitleaks, detect-secrets, TruffleHog). Own the *integration and the enforcement semantics*; route
+*rule maintenance* to an existing corpus. This is where most of the "is the extra work worth it"
+cost actually sits, and it is avoidable.
+
+**Split it out only when one of these fires** — and note that the first is the likely one, and it
+has a cheaper answer:
+
+| Trigger | Why it forces a split | Cheaper alternative first |
+|---|---|---|
+| Detection rules need to update faster than the harness releases | Rule freshness is a security property; harness releases are deliberately slow | **Version the rule pack as data**, shipped and updated independently of the code. Gets the cadence without the repo split — try this before splitting |
+| A consumer outside `qbiz-agents` needs it | Cross-repo dependency on a subdirectory is the actual pain point | None — this is a real trigger |
+| It grows a heavy dependency (entropy models, ML classifiers) the harness shouldn't carry | Violates the harness's dependency-light discipline | Optional extra, if the dependency can be made optional |
+
+Until one fires, a standalone tool is cost without benefit. Record the triggers so the decision is
+made on evidence rather than re-argued each time — see `[D9]`.
 
 ---
 
@@ -1020,6 +1171,18 @@ These need no pending decision and no per-agent input — build now, in any orde
 - [ ] **Component 1 — Input Wrapper** (`input_wrapper.py`): PII strip, injection screen, rate
       limit, safety inject. *Prereqs:* per-agent PII type definitions + injection-screening
       dependency choice `[D5]`. Regex-only screening can ship first; Guardrails/Rebuff added later.
+- [ ] **J9 — Egress endpoint allowlist** (`egress.py`): reject model calls to endpoints outside the
+      per-run allowlist. **No prereqs** — a static allowlist needs no `[D1]` identity. Ship this
+      *first* in the phase: it is the strongest control in the data-governance conversation and the
+      cheapest to build. See **Where the boundary actually is**.
+- [ ] **J7/J8 — Content admission gate + attestation ledger** (`admission.py`): `default_confidential`
+      posture — refuse content that is neither attested nor machine-cleared; content-hash-keyed
+      clearances with expiry and scope; derived-content inheritance; bulk (glob/label) attestation;
+      admission-refusal-rate telemetry. *Prereqs:* `[D7]` for the classification-provider interface,
+      `[D9]` for the secret checker. Ledger writes ride the audit backend `[D4]`.
+- [ ] **J2 — Classification-aware redaction**: mask values declared sensitive by the provider.
+      Opt-in per content class — **never** the fallback for unknown content (that path refuses).
+      *Prereq:* `[D7]`.
 - [x] **Component 2 — Output Validator** (`output_validator.py`): format check, hallucinated-tool
       block, out-of-scope flag. *Prereq:* the per-agent tool allowlist (shared with Component 3).
       *Done — pure Layer-1 checks raising `OutputRejectedError`; each check opt-in at the call site.
@@ -1099,7 +1262,8 @@ are **ours to make** at build time.
 | **D4** | **Audit storage backend (HIGH+)** — *pluggable, warehouse-agnostic writer*, not a single vendor. Preferred: client's existing warehouse (Snowflake / BigQuery / Redshift) so audit joins their analytics; portable fallback: small MySQL/Postgres via SQLAlchemy; demo: local JSONL (built). See **Fleet Operation**. | Production-grade audit **and all fleet aggregate monitoring** | Before any HIGH+ production deploy or any multi-agent client engagement. Demo uses local JSONL. | Ours. *Promoted by the fleet direction (2026-06-19); build one writer interface, pick the engine per engagement.* |
 | **D5** | **Injection-screening dependency** — regex-only vs. Guardrails AI vs. Rebuff. | Full Component 1 (Phase 2) | At Phase 2. Ship regex-only first; add a library later if needed. | Ours. *Decide at build time.* |
 | **D6** | **HITL timeout policy (per agent)** — fail-closed / fail-open / escalate. | Per-agent config, **not** the Component 8 mechanism | At each agent's config time. **Default fail-closed for HIGH+.** | Ours. *Per-agent, default exists.* |
-| **D7** | **Data-classification source & data-level access-control scope** — where the harness reads per-object sensitivity at runtime (dbt `manifest.json` / `catalog.json` `meta` vs. a dbt MCP surface), and how far data-object access control (J1) extends (schema / table / column). Client policy overrides the QBiz baseline taxonomy. | J1–J6 (data-sensitivity guardrails); sharpens `[D1]` | Before building data-level guardrails; consumer (`qbiz_dbt_startup_kit`) is waiting on it. See **Data Sensitivity Classification** above. | Team + ours. *New (2026-07-08); design in that kit's `docs/DATA_SENSITIVITY_PROPOSAL.md`.* |
+| **D7** | **Classification source(s) & data-level access-control scope** — where the harness resolves sensitivity at runtime, and how far data-object access control (J1) extends (schema / table / column). **Widened 2026-07-28:** the original framing assumed *dbt objects* (`manifest.json` / `catalog.json` `meta` vs. a dbt MCP surface). A document-inventory consumer has no manifest, so J6 must be a **pluggable classification provider** — dbt metadata, file/folder tags, a sidecar manifest, or platform sensitivity labels (MIP/Purview and equivalents) — resolved through one interface. Decide the interface now; add providers per engagement. Client policy overrides the QBiz baseline taxonomy. | J1–J9 (data-sensitivity guardrails, content admission); sharpens `[D1]` | Before building data-level guardrails; consumers (`qbiz_dbt_startup_kit`, document-inventory engagements) are waiting on it. See **Data Sensitivity Classification** above. | Team + ours. *New (2026-07-08); widened beyond dbt 2026-07-28. Design in that kit's `docs/DATA_SENSITIVITY_PROPOSAL.md`.* |
+| **D9** | **Secret/credential detection packaging** — a module inside `harness/` (`secret_scan.py`, consumed by Assay) vs. a standalone tool. **Default: module**, on the same reasoning as Decision 1. Also: which maintained rule corpus to wrap (gitleaks / detect-secrets / TruffleHog) rather than authoring rules ourselves. | The J7 machine-clearing checker set; Assay's existing credential check (de-duplication) | At build time, with the admission gate. Re-open only when a documented split trigger fires. | Ours. *New (2026-07-28); triggers and the cheaper rule-pack-as-data alternative recorded in **Secret / credential detection** above.* |
 | **D8** | **Model-tier taxonomy + provider→tier map** — the concrete `WEAK/MID/FRONTIER` bands and which model IDs map to each (couples to `[D3]`: the provider list depends on whether we run Claude, Gemini, or both). Also: default soft vs. hard floor per risk tier. | Per-cohort model bands (Phase 7). **Not** the `model_policy.py` primitive (Phase 1), which is taxonomy-agnostic. | At Phase 7 config authoring. The primitive ships without it; bands can start conservative (everything MID) and tighten as benchmarking lands. | Ours, but *waits on `[D3]`'s provider answer* for the concrete map. *Safe default: everything MID until benchmarked.* |
 
 **The two that actually pace us are D1 and D3** — both are team decisions and both are on the
@@ -1118,6 +1282,10 @@ The 3× range is meaningless without knowing what moves it. The deciding factors
 - Whether HITL is synchronous (blocks execution) or asynchronous (fires and continues)
 - Number of distinct PII types requiring custom stripping logic
 - Whether the memory backend is shared (requires scoping) or per-agent (does not)
+- Whether the engagement runs `default_confidential` (adds the admission gate, attestation ledger,
+  and one classification provider — the ledger and its expiry/scope rules are the bulk of it)
+- Number of classification providers the engagement needs behind the J6 interface (each is small;
+  the interface is the fixed cost)
 
 ---
 
