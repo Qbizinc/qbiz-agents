@@ -158,11 +158,14 @@ infrastructure, not harness code.**
 
 | Ring | What flows through it | Enforcement point | Owner | Control strength |
 |---|---|---|---|---|
-| **1 — Agent code** | LLM calls our agents make | **The harness** (`ModelPolicy`, cost governor, access controls, …) | **Us** — this plan | **Total** — in-process, un-bypassable |
+| **1 — Agent code** | LLM calls our agents make | **The harness** (`ModelPolicy`, cost governor, access controls, …) | **Us** — this plan | **Total, once wired** — in-process, un-bypassable *by the model*; not yet verified un-skippable *by the engineer wiring it in* (see Gate 1 coverage check) |
 | **2 — Programmatic API use** | Any code/employee hitting an LLM *API* | An **LLM gateway/proxy** + blocked direct egress | **Client platform/security team** | **Strong** — *if* the bypass is closed |
 | **3 — Third-party AI SaaS** | People using ChatGPT / Claude / Copilot / Gemini in a browser | Vendor admin controls + CASB/network + tenant restrictions | **Client IT/security + procurement** | **Partial** — never airtight |
 
-The harness delivers Ring 1 in full. Rings 2 and 3 are what we *advise the client to build* — and
+The harness delivers Ring 1 in full **wherever a component is actually called at the call site** —
+the components themselves are unconditionally enforced, but nothing today verifies that every
+consequential action in a given agent *routes through* one (see Gate 1 coverage check, below). Rings
+2 and 3 are what we *advise the client to build* — and
 deliberately **not** things we fold into `qbiz_harness` (they have no place inside an in-process
 agent library; see the one-way-dependency discipline and *Deferred Concerns*). What follows is the
 guidance to give.
@@ -367,8 +370,20 @@ Hard limits enforced in code, across two dimensions:
   A spend cap stops runaway cost; an action cap stops a cheap-but-destructive loop (e.g. an agent
   that sends 500 Slack messages well under the token budget).
 
-The governor also carries a **kill switch** (a hard global stop, independent of any single limit)
-and supports **redundancy detection** — refusing work it has already done this run.
+The governor also carries a **kill switch** (an immediate, unconditional stop, independent of any
+single limit) and supports **redundancy detection** — refusing work it has already done this run.
+
+**Scope correction (2026-08-06, persona review):** `CostGovernor` is a per-run instance — the
+launcher constructs a fresh one per invocation (see the Model-Tier Policy section: "like
+`CostGovernor`, the launcher constructs it with the right policy for the run"). `kill()` stops
+*that instance*, not every concurrent run in a cohort. At fleet scale, a cohort can have many
+simultaneous incident invocations, each with its own governor — calling `.kill()` on one does not
+touch the others. "Kill switch" read next to "hard global stop" invites the fleet-wide reading this
+doesn't deliver. Either rename the method (`halt_run()`) or keep the name and make the
+per-run-only scope explicit in the docstring/README before this is demoed in a fleet context. A
+real fleet-wide stop — a shared flag in the audit backing store, checked at the top of each guarded
+call — is not designed and would be new infrastructure; build it only if a concrete fleet-wide-halt
+case forces it, not speculatively.
 
 ```python
 class CostGovernor:
@@ -571,9 +586,19 @@ class LoopGuard:
             raise LoopLimitError(f"Agent exceeded {self._max} iterations — escalating to human")
 ```
 
-**Still to specify:** partial-success recovery (if step 3 of 5 fails — start over or resume?),
-deadlock handling in multi-agent pipelines, and **per-tool** timeouts (a global 30s is wrong for
-most tools — timeouts belong on the tool, not the wrapper).
+**Still to specify:** partial-success recovery (if step 3 of 5 fails — start over or resume?) and
+deadlock handling in multi-agent pipelines. Per-tool timeouts are **done** — the sketch above is
+illustrative only; the shipped `with_retry` takes `timeout` as a call-site parameter (default 30s),
+exactly as this section originally asked for.
+
+**Known defect (2026-08-06, persona review — not yet fixed):** the shipped `with_retry` catches
+`except (asyncio.TimeoutError, Exception)`, which is exactly `except Exception` (`TimeoutError` is
+already an `Exception` subclass). A `HarnessError` raised inside a retried step — a
+`BudgetExceededError`, a `ModelPolicyError` — is silently retried up to `max_attempts` times before
+it propagates, contradicting every other component's contract that a rejection surfaces immediately.
+Fix is two lines (catch `asyncio.TimeoutError` alone; let `HarnessError` propagate on first raise)
+plus a regression test. Small, isolated, and worth landing ahead of anything else in this phase —
+it's a defect in shipped code, not an open design question.
 
 ---
 
@@ -640,9 +665,15 @@ async def hitl_checkpoint(
 - **Fail open** — no response = proceed after timeout (only for LOW risk, time-sensitive)
 - **Escalate** — no response = page a secondary contact and pause indefinitely
 
-**Still to specify:** unattended/overnight behavior, how to give the approver enough context in
-the message, and the audit trail (who approved, exact state at approval, whether the subsequent
-action matched the prompt).
+**Still to specify:** how to give the approver enough context in the message, and the audit trail
+(who approved, exact state at approval, whether the subsequent action matched the prompt).
+Unattended/overnight behavior is answered in principle by `[D6]`'s fail-closed default for HIGH+,
+but the concrete gap is narrower and unnamed until now (2026-08-06, persona review):
+`TimeoutPolicy.ESCALATE` raises `HitlEscalationRequired` and **nothing catches it yet** — there is
+no paging mechanism, no secondary-contact concept anywhere in the code. `ESCALATE` currently behaves
+like fail-closed with a different exception type, not a functioning third option. This is the kind
+of gap that looks closed in a demo (the exception is raised, a test asserts it) and isn't closed in
+practice (nobody gets paged) — name it explicitly rather than leaving it under the vaguer heading.
 
 ---
 
@@ -761,6 +792,13 @@ touch* or *how dangerous they are* must not. In practice 100 jobs collapse to **
 identities** (e.g. `finance-tier-HIGH`, `marketing-readonly-LOW`, `platform-tier-MEDIUM`), each with
 a tight allowlist instead of the union of all 100 jobs' permissions.
 
+**Say this explicitly (2026-08-06, persona review):** cohort grouping solves the *cost* problem
+fully and the *blast-radius* problem only partly. Every job inside a cohort still inherits that
+cohort's complete permission set, not just what it individually needs — a job that only ever touches
+one Slack channel still runs under `finance-tier-HIGH`'s full allowlist if that's its cohort. That's
+an acceptable trade (12 templates beats 100 bespoke configs), but a client should not be left to
+assume "same cohort" means "same access" — it means "same *ceiling* on access."
+
 ### Configuration & management at fleet scale
 
 ~12 cohorts is manageable; hand-authoring 12 near-identical `agents/<name>/` dirs (let alone 100) is
@@ -773,9 +811,34 @@ not. Two additions to the per-agent config layout:
    Author one HIGH-tier template, not twelve copies. (omnigent's stacked server > agent > session
    policy scopes are precedent that layered policy is the right shape.)
 
-This **sharpens `[D1]`**: at fleet scale, identity is "the launcher assigns `agent_id` from the
-manifest," which favors the env-var-set-by-launcher option over a per-agent signed token, and means
-D1 must be decided with the manifest in mind. Fleet operation raises D1's urgency.
+**Merge semantics (2026-08-06, persona review — was unspecified, needed before anyone writes the
+resolver).** "Layered policy" doesn't say whether a cohort override replaces a dict wholesale,
+deep-merges it key-by-key, or replace-with-appends list fields like `action_limits`. Silent
+merge-semantics bugs in a fleet permission resolver are the hardest kind to catch before a client
+sees them — a cohort silently keeps a permission nobody meant it to retain, or silently drops one an
+override was meant to add to. Resolution: **replace-at-top-level-key, no deep merge.** A cohort's
+`models.yaml` either inherits the template's bands wholesale or fully overrides them per activity
+key — no partial-field merging inside a single `ActivityBand`. At ~12 cohorts this is small enough
+to hand-verify (walk three files, print the merged result) and covers the actual duplication problem
+(one template, not twelve copies) without building general-purpose deep-merge machinery for a scale
+nobody has today. Add real deep-merge only when a real cohort needs to override one field of an
+inherited band without restating the whole thing — against that case, not this one.
+
+**Diff governance (2026-08-06, persona review).** The manifest being "reviewable and diffable" is a
+property of git, not a property this design adds enforcement to. Moving a job from
+`finance-tier-HIGH` to `platform-tier-MEDIUM` is a one-line YAML edit that looks, in diff form,
+identical to a routine reassignment — and it silently drops that job's access allowlist, model-tier
+ceiling, and HITL requirement to whatever the lower cohort grants. Add one narrow, cheap check (a
+pre-merge script, not a person, and not a reopening of Decision 4's open-write-access call): fail a
+manifest diff that *decreases* a job's cohort risk tier or shrinks its declared data-sensitivity
+floor (`[D7]`/J5) unless it carries an explicit `reason:` field and a second reviewer on that line.
+Only the decrease direction is flagged — an honest mistake or a shortcut under deadline pressure
+moves a job to a *lower* tier, never a higher one, so that's the direction worth the friction.
+
+This **sharpens `[D1]`**: at fleet scale, identity is "the launcher derives `agent_id` from the
+manifest via `job_id → cohort → agent_id`," which is the resolution recorded against `[D1]` above.
+Fleet operation raises D1's urgency and is why that decision was resolved in this review rather than
+left open.
 
 ### Aggregate audit: separating "harness intervened" from "agent handled it"
 
@@ -895,6 +958,13 @@ agent-identity, so this **raises D1's priority**. **J2 (redaction), J7/J8
 (admission) and J9 (egress allowlist) are all unblocked** and are the sensible
 first deliverables. `[D7]` settles the classification source.
 
+**Add J3 to that list once J6 exists (2026-08-06, persona review).** `output_validator.py`'s
+`check_scope()` already implements the shape J3 needs — flag anything referenced that isn't in a
+permitted set. J3 ("classified-data leak detection in output") is the same function signature with
+`referenced_systems` swapped for "values sourced from restricted columns." Once the classification
+lookup (J6) exists, J3 is close to direct reuse of code that's already shipped and tested, not new
+design — cheaper than its place in the table implies.
+
 ---
 
 ### Where the boundary actually is — endpoint before content
@@ -955,6 +1025,21 @@ establish that an artifact is clean, sending a partially-cleaned version and hop
 false-confidence failure this mode exists to prevent. Redaction stays available, but as an
 *opt-in per content class*, never as the fallback for "we couldn't tell."
 
+**The two paths aren't as independent as they look (2026-08-06, persona review).** "Machine-cleared"
+bundles three checkers — secret patterns, declared-classification lookup, structural rules — as if
+they're equally independent verification. Secret-pattern matching is genuinely independent; **declared-
+classification lookup is not**: it doesn't inspect content, it re-reads the same producer tag J1/J6
+already trusts. If a dbt model is mislabeled `internal` when a column is actually PII — a labeling
+mistake, the single most likely failure mode for a taxonomy authored by whoever wrote the model —
+"machine-cleared via declared-classification lookup" waves it through, because the check *is* the
+declaration. This isn't a hole in J2's redaction (the plan is already honest that redaction is
+"weak — do not sell this," and that stands). It's a hole in the admission gate believing it has two
+independent legs when it structurally has one and a half. Mitigation: a cheap, low-precision
+**consistency checker** — not a redactor, a QA signal — that runs deterministic pattern detection
+against a *sample* of objects tagged below `restricted` at manifest-ingestion time (not per-request)
+and flags disagreements for human review. It doesn't need to be good; it needs to exist, because
+right now nothing checks the checker.
+
 **Design details that decide whether this actually holds:**
 
 - **Clearance is keyed on content hash, not artifact identity.** Edit the document and it loses
@@ -962,13 +1047,29 @@ false-confidence failure this mode exists to prevent. Redaction stays available,
   time someone updates a file.
 - **Clearances expire and are scoped.** An artifact cleared for one engagement is not cleared for
   the next; a clearance from a year ago does not govern today's content. Both are configuration.
-- **Derived content inherits.** Structure extracted locally from a confidential artifact is
+- **Derived content inherits — and the enforcement mechanism has to be named, not implied
+  (2026-08-06, persona review).** Structure extracted locally from a confidential artifact is
   confidential until separately cleared. Without this rule, the "extract locally, send only the
   structure" path in the inventory design becomes a laundering channel — the most likely way this
-  mode gets quietly defeated in practice.
+  mode gets quietly defeated in practice. Stating the rule isn't enough: name *which* code stamps a
+  derived artifact with its parent's content hash and un-cleared status. If the answer is "whatever
+  extraction tool the engagement uses, by convention," an ad hoc script a consultant writes to "just
+  pull the structure" produces content with no lineage tag at all, and may never be routed through
+  the admission gate to default-refuse — it may simply never be checked. Make the derivation-stamping
+  obligation a property of whatever shared extraction utility ships with `admission.py`; treat any
+  content reaching the model *without* having gone through that utility or the gate as exactly what
+  `default_confidential` exists to catch. The honest answer to "is my ad hoc script safe" is "no, by
+  design," not "usually."
 - **Bulk attestation is mandatory, not a convenience.** Directory-, glob-, and label-scoped
   clearance. Per-file human attestation does not survive contact with an inventory engagement, and
   a control people cannot comply with is a control they will route around.
+- **Self-attestation needs segregation of duties (2026-08-06, persona review).** Nothing today says
+  the attester can't be the same person who wants the content sent — and under Decision Locked #4's
+  open write access, that's everyone. This is narrower than reopening Decision 4: attestation *is*
+  changing the enforcement boundary, at the grain of one artifact at a time, which is precisely the
+  trigger Decision 4 names for revisiting access — but the fix doesn't need repo permissions. Require
+  `attested_by` to be distinct from the run's `agent_id`/requesting operator for `restricted`/
+  regulated content, enforced by the `attestation` config block itself.
 - **Refusals are telemetry, not just failures.** Track an **admission-refusal rate** alongside the
   existing harness-intervention-rate. A spike means either a real catch or a mis-set policy, and —
   per the standing recommendation in the Enforcement Perimeter section — a control with no
@@ -978,6 +1079,23 @@ false-confidence failure this mode exists to prevent. Redaction stays available,
   Classifying a document by sending it to a hosted LLM defeats the control it implements. Call
   this out explicitly in any client-facing description; it is not obvious and clients do not
   anticipate it.
+
+**Build sequencing (2026-08-06, persona review).** Nothing in this section is built, and the sizing
+note below already flags the ledger as likely "the bulk of" the whole data-sensitivity build.
+Design all four dimensions — expiry, bulk/glob scoping, multi-scope resolution, and derived-content
+inheritance's full generality — up front, against zero real usage, and the interface is being
+guessed rather than derived, the same failure mode the harness's shipped components otherwise avoid.
+**Build narrow first:** human-attested-only, single-scope, no-expiry, no-bulk-attestation, against
+one real engagement — confirm refuse-not-redact actually holds in practice before adding expiry,
+glob/label bulk scoping, and multi-scope resolution on top of it. This is the same "build last,
+needs real output to design against" logic the plan already applies to the evaluator (Component 7).
+
+That sequencing is about which **dimensions** to add later — it is not license to defer the three
+items above (the consistency checker, the derivation-stamping obligation, and self-attestation
+segregation of duties). Those aren't extra dimensions; they're integrity properties of the two
+admission paths that exist in *any* version, including the minimal one. Ship the minimal ledger
+without them and it isn't a smaller safe thing, it's the same hole in a smaller box — so all three
+ship *with* the narrow-first build, not after it.
 
 **Config shape** (per-engagement, same posture as `limits.yaml` — never hardcoded):
 
@@ -1048,6 +1166,12 @@ made on evidence rather than re-argued each time — see `[D9]`.
 
 - Unit tests for every tool (input/output contract)
 - Linting and type checking of all harness code
+- **Coverage check (2026-08-06, persona review).** A static check — grep-shaped to start — that
+  every consequential action (send, write, tool call) in an agent's code path is preceded by a
+  matching governor/access-control call. The components themselves are unbypassable by the model
+  once wired; nothing currently verifies they *are* wired at every call site, and the Enforcement
+  Perimeter's "un-bypassable" claim is only true against the axis this check covers. Closes the gap
+  between a claim about the harness and a claim about a specific agent's code.
 - Access control verification — explicitly test that the agent *cannot* call tools outside its allowlist
 - Hard limit enforcement — test that cost/token governors fire at the configured threshold
 - Audit logging validation — confirm every action type produces a log entry
@@ -1166,15 +1290,19 @@ These need no pending decision and no per-agent input — build now, in any orde
       *policy* `[D6]` (fail-closed / fail-open / escalate) is an enum arg defaulting to
       fail-closed; escalate raises `HitlEscalationRequired`. *Done — returns a structured
       `ApprovalDecision` the call site logs through `AuditLog`; tests in `tests/test_hitl.py`.*
+- [ ] **J9 — Egress endpoint allowlist** (`egress.py`): reject model calls to endpoints outside the
+      per-run allowlist. **Moved here from Phase 2 (2026-08-06, persona review).** A static
+      allowlist is agent-agnostic and config-only, needing no `[D1]` identity and no per-agent
+      prerequisite — the same shape as everything else in this phase, and closer kin to
+      `cost_governor.py`/`model_policy.py` than to Component 1 (input wrapper), which it was
+      previously scheduled behind for no dependency reason. It is also, by the plan's own **Where
+      the boundary actually is** ranking, the strongest and cheapest control in the whole
+      data-sensitivity section — no technical reason to leave it waiting.
 
 ### Phase 2 — I/O screening components
 - [ ] **Component 1 — Input Wrapper** (`input_wrapper.py`): PII strip, injection screen, rate
       limit, safety inject. *Prereqs:* per-agent PII type definitions + injection-screening
       dependency choice `[D5]`. Regex-only screening can ship first; Guardrails/Rebuff added later.
-- [ ] **J9 — Egress endpoint allowlist** (`egress.py`): reject model calls to endpoints outside the
-      per-run allowlist. **No prereqs** — a static allowlist needs no `[D1]` identity. Ship this
-      *first* in the phase: it is the strongest control in the data-governance conversation and the
-      cheapest to build. See **Where the boundary actually is**.
 - [ ] **J7/J8 — Content admission gate + attestation ledger** (`admission.py`): `default_confidential`
       posture — refuse content that is neither attested nor machine-cleared; content-hash-keyed
       clearances with expiry and scope; derived-content inheritance; bulk (glob/label) attestation;
@@ -1256,13 +1384,13 @@ are **ours to make** at build time.
 
 | ID | Decision | Blocks | Needed by | Type / status |
 |---|---|---|---|---|
-| **D1** | **Agent-identity injection** — env var (set by launcher) vs. signed token at harness init. Never read from LLM output. Fleet operation favors *launcher-assigned-from-manifest* (see **Fleet Operation**). | Component 3 (Phase 3) — entire access-control layer; also the fleet manifest (Phase 7) | Before Phase 3. **Hard requirement before any client engagement** (client-facing agents are HIGH+ and need Component 3). | Team. *Pending review.* |
+| **D1** | **Agent-identity injection — resolved in principle, 2026-08-06 (persona review).** The original framing ("env var vs. signed token") asked about the *carrier* and skipped the more important question of *derivation*. Resolution: for fleet deployments, `agent_id` is **derived** at launch from a `job → cohort → agent_id` manifest lookup, keyed on the job identity the orchestrator (e.g. Airflow) already knows — not typed into, or trusted directly from, the process environment. It is then **carried** across the process boundary as an env var, the cheap option the Fleet Operation section already argued for. For a bare single-agent deployment with no manifest, plain env-var-set-by-launcher stands as originally framed. Never read from LLM output, either way. | Component 3 (Phase 3) — entire access-control layer; also the fleet manifest (Phase 7) | Before Phase 3. **Hard requirement before any client engagement** (client-facing agents are HIGH+ and need Component 3). | Team to ratify. *Recommended resolution above is fully reversible (a wiring decision, not an architecture bet) and unblocks Phase 3 now.* |
 | **D2** | **Shared vs. per-agent memory backend** — does any agent share memory with another? | Component 4 (Phase 4) — whether it's built at all | Before Phase 4. Low urgency; **default to per-agent (skip Component 4)** until a shared backend is actually introduced. | Team. *Open; safe default exists.* |
 | **D3** | **LLM provider + evaluator model** — Qbiz may lack an Anthropic key; Gemini possible. Evaluator must be a *different* model than the primary, so this picks both. Also gates the demo driver `incident_demo.py`. | Component 7 (Phase 5) + Gate 2 + demo driver | **Soft target: the Airflow demo** (fine if not ready). **Hard requirement before any client engagement** using the MCP servers. | Team. *Pending — see project memory `llm_provider_open_question`.* |
-| **D4** | **Audit storage backend (HIGH+)** — *pluggable, warehouse-agnostic writer*, not a single vendor. Preferred: client's existing warehouse (Snowflake / BigQuery / Redshift) so audit joins their analytics; portable fallback: small MySQL/Postgres via SQLAlchemy; demo: local JSONL (built). See **Fleet Operation**. | Production-grade audit **and all fleet aggregate monitoring** | Before any HIGH+ production deploy or any multi-agent client engagement. Demo uses local JSONL. | Ours. *Promoted by the fleet direction (2026-06-19); build one writer interface, pick the engine per engagement.* |
+| **D4** | **Audit storage backend (HIGH+)** — *pluggable, warehouse-agnostic writer*, not a single vendor. Preferred: client's existing warehouse (Snowflake / BigQuery / Redshift) so audit joins their analytics; demo: local JSONL (built). **Narrowed 2026-08-06 (persona review):** build the writer interface against JSONL only for now. The SQLAlchemy MySQL/Postgres fallback is deferred to *Deferred Concerns* until a real engagement without a suitable client warehouse actually appears — designing a three-engine abstraction against one real implementation guesses the interface from imagination, exactly the failure mode the harness's shipped components otherwise avoid. See **Fleet Operation**. | Production-grade audit **and all fleet aggregate monitoring** | Before any HIGH+ production deploy or any multi-agent client engagement. Demo uses local JSONL. | Ours. *Promoted by the fleet direction (2026-06-19); build one writer interface against JSONL, extract the second engine from the first real case that needs one — not before.* |
 | **D5** | **Injection-screening dependency** — regex-only vs. Guardrails AI vs. Rebuff. | Full Component 1 (Phase 2) | At Phase 2. Ship regex-only first; add a library later if needed. | Ours. *Decide at build time.* |
 | **D6** | **HITL timeout policy (per agent)** — fail-closed / fail-open / escalate. | Per-agent config, **not** the Component 8 mechanism | At each agent's config time. **Default fail-closed for HIGH+.** | Ours. *Per-agent, default exists.* |
-| **D7** | **Classification source(s) & data-level access-control scope** — where the harness resolves sensitivity at runtime, and how far data-object access control (J1) extends (schema / table / column). **Widened 2026-07-28:** the original framing assumed *dbt objects* (`manifest.json` / `catalog.json` `meta` vs. a dbt MCP surface). A document-inventory consumer has no manifest, so J6 must be a **pluggable classification provider** — dbt metadata, file/folder tags, a sidecar manifest, or platform sensitivity labels (MIP/Purview and equivalents) — resolved through one interface. Decide the interface now; add providers per engagement. Client policy overrides the QBiz baseline taxonomy. | J1–J9 (data-sensitivity guardrails, content admission); sharpens `[D1]` | Before building data-level guardrails; consumers (`qbiz_dbt_startup_kit`, document-inventory engagements) are waiting on it. See **Data Sensitivity Classification** above. | Team + ours. *New (2026-07-08); widened beyond dbt 2026-07-28. Design in that kit's `docs/DATA_SENSITIVITY_PROPOSAL.md`.* |
+| **D7** | **Classification source(s) & data-level access-control scope** — where the harness resolves sensitivity at runtime, and how far data-object access control (J1) extends (schema / table / column). **Widened 2026-07-28:** the original framing assumed *dbt objects* (`manifest.json` / `catalog.json` `meta` vs. a dbt MCP surface). A document-inventory consumer has no manifest, so J6 must eventually be a **pluggable classification provider** — dbt metadata, file/folder tags, a sidecar manifest, or platform sensitivity labels (MIP/Purview and equivalents). **Narrowed back 2026-08-06 (persona review):** build the concrete dbt-manifest provider first, against the one real waiting consumer (`qbiz_dbt_startup_kit`) and its `DATA_SENSITIVITY_PROPOSAL.md`, and wire J2 (redaction) to it end-to-end. Generalize to a provider *interface* only once a second concrete provider (e.g. document/folder tags) exists to abstract from — the MIP/Purview case is deferred to *Deferred Concerns* until then, same reasoning as `[D4]`. Client policy overrides the QBiz baseline taxonomy regardless. | J1–J9 (data-sensitivity guardrails, content admission); sharpens `[D1]` | Before building data-level guardrails; consumers (`qbiz_dbt_startup_kit`, document-inventory engagements) are waiting on it. See **Data Sensitivity Classification** above. | Team + ours. *New (2026-07-08); widened beyond dbt 2026-07-28, narrowed back to the concrete-first sequencing 2026-08-06. Design in that kit's `docs/DATA_SENSITIVITY_PROPOSAL.md`.* |
 | **D9** | **Secret/credential detection packaging** — a module inside `harness/` (`secret_scan.py`, consumed by Assay) vs. a standalone tool. **Default: module**, on the same reasoning as Decision 1. Also: which maintained rule corpus to wrap (gitleaks / detect-secrets / TruffleHog) rather than authoring rules ourselves. | The J7 machine-clearing checker set; Assay's existing credential check (de-duplication) | At build time, with the admission gate. Re-open only when a documented split trigger fires. | Ours. *New (2026-07-28); triggers and the cheaper rule-pack-as-data alternative recorded in **Secret / credential detection** above.* |
 | **D8** | **Model-tier taxonomy + provider→tier map** — the concrete `WEAK/MID/FRONTIER` bands and which model IDs map to each (couples to `[D3]`: the provider list depends on whether we run Claude, Gemini, or both). Also: default soft vs. hard floor per risk tier. | Per-cohort model bands (Phase 7). **Not** the `model_policy.py` primitive (Phase 1), which is taxonomy-agnostic. | At Phase 7 config authoring. The primitive ships without it; bands can start conservative (everything MID) and tighten as benchmarking lands. | Ours, but *waits on `[D3]`'s provider answer* for the concrete map. *Safe default: everything MID until benchmarked.* |
 
@@ -1312,3 +1440,13 @@ Real, but not load-bearing yet. Addressed when a concrete use case forces them �
    `CODEOWNERS` decision — both trigger when code reaches client hardware.
 6. **`CODEOWNERS` / restricted write** — see Decision 4. Valid approach once this lands on client
    hardware; open to all consultants until then.
+7. **SQLAlchemy audit-backend fallback (2026-08-06, persona review; narrows `[D4]`)** — the
+   MySQL/Postgres portable-fallback writer, for engagements without a suitable client warehouse.
+   Deferred until such an engagement actually appears; JSONL + the client-warehouse path cover
+   everything real today. Building the fallback now would be a second engine designed against zero
+   real cases, not one.
+8. **Classification-provider generalization beyond dbt (2026-08-06, persona review; narrows
+   `[D7]`)** — the pluggable-provider interface covering file/folder tags, sidecar manifests, and
+   platform labels (MIP/Purview and equivalents). Deferred until a second concrete consumer beyond
+   the dbt-manifest case (`qbiz_dbt_startup_kit`) actually needs one. Build the dbt provider
+   concretely first; generalize from the second real provider, not the first imagined one.
