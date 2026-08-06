@@ -25,6 +25,7 @@ qbiz-agents/
 ├── mcp/                       # MCP server definitions (Slack, Snowflake, etc.)
 │   └── mcp_<name>/
 ├── checks/                    # Global code review rules applied across all repos
+├── personas/                  # Reusable role definitions for design/review work (Architect, Engineer, Challenger)
 ├── agents/                    # Long-running, autonomous agent definitions
 ├── cli/                       # Source for the `qba` Python CLI
 │   ├── pyproject.toml
@@ -277,6 +278,24 @@ Agent definitions live in `agents/<name>/` and follow a similar structure to ski
 
 ---
 
+## Personas
+
+`personas/` holds reusable role definitions — **Architect**, **Engineer**, **Challenger** — for
+design and review work. They're reference content read directly, the same way `checks/` is: not
+installed via the CLI, not invoked like a skill, just read in full and adopted whenever a task
+needs a design review, a plan critique, or a multi-perspective pass instead of one undifferentiated
+one.
+
+- **Architect** leads and rules on disagreement; asks what a decision costs to undo first.
+- **Engineer** argues feasibility, cost, and pushes back on over-engineering.
+- **Challenger** finds the alternative nobody listed and looks for how something breaks or gets misused.
+
+See [`personas/README.md`](personas/README.md) for when to use one role vs. all three, and
+[`personas/AGENTS.md`](personas/AGENTS.md) for the standing instruction agents follow before
+writing an ad hoc review persona instead of reaching for these.
+
+---
+
 ## Internal tooling
 
 `tools/` and `script/` are for contributors working inside this repo — not for end users.
@@ -334,6 +353,7 @@ pre-commit install
 | `CLAUDE.md` | Repo-level operating instructions when Claude works inside this repo |
 | `GEMINI.md` | Repo-level operating instructions when Gemini works inside this repo |
 | `checks/review.md` | Global code review rules applied across all Qbiz repos |
+| `personas/` | Reusable Architect/Engineer/Challenger role definitions for design and review work |
 | `OWNERS.yaml` | Root-level PR reviewer assignments |
 
 ---
