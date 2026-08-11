@@ -530,6 +530,92 @@ empirical benchmarking that sets *which* activities can sit at WEAK without qual
 whether an unmapped-but-newer model of a known family resolves by prefix or stays fail-closed
 (default: **fail-closed** — an unmapped model is an ungoverned model).
 
+**Real-world gap found dogfooding (2026-08-10, novamart-pipelines).** The first live caller
+(`agentic_incident_memory_v2.py`) exposed a drift risk the primitive itself doesn't prevent:
+`ModelPolicy.check()` is only ever invoked from a DAG-parse-time helper (`enforce_model_policy()`)
+fed a **hand-maintained dict** that is supposed to mirror each task's actual `model_id=` kwarg on
+its `@task.agent`/`@task.llm_branch` decorator — but nothing ties the two together. Someone can
+bump a task's real `model_id` without touching the dict, and the parse-time check keeps passing
+while the task silently runs over-tier. Fix (not yet built): collapse to one source of truth by
+checking **at the declaration site** instead of against a separately maintained mirror — a small
+wrapper that takes `(activity, model_id)`, calls `policy.check()` inline, and returns the
+(validated) `model_id` for the decorator to consume directly:
+
+```python
+def guarded_model(activity: str, model_id: str) -> str:
+    _POLICY.check(activity, model_id)
+    return model_id
+
+@task.agent(..., model_id=guarded_model("investigate_aws", MODEL_WEAK))
+```
+
+Same parse-time-fail behavior as today, but drift becomes structurally impossible instead of just
+unlikely. This is about how callers *invoke* `check()`, not a change to `model_policy.py` itself —
+worth folding into the `agent-harness` skill's guidance next to the existing call-site-ordering
+rule, so future callers get it right the first time instead of rediscovering it.
+
+**Multi-provider `tier_map` (Gemini) — sharpens `[D8]`.** The primitive is already
+provider-agnostic (`tier_map: dict[str, Tier]` accepts any concrete model string), so no code
+change is needed in `model_policy.py` itself. What's actually needed: concrete pydantic_ai Gemini
+model-id strings per tier (e.g. `google-gla:gemini-*-flash` / `-pro` — exact naming TBD), added
+alongside the existing Anthropic entries in the caller's `tier_map`, and a decision on whether a
+given activity's band should admit Claude-only, Gemini-only, or either at a tier. This is squarely
+`[D8]`'s "concrete provider→tier map," which already waits on `[D3]`'s provider answer — novamart's
+own live `ANTHROPIC_API_KEY` usage answers `[D3]` for Claude, but Gemini *API* access (vs. just a
+Workspace subscription) is still unconfirmed; don't spend time on exact Gemini model strings until
+that's checked.
+
+### Violation response: reject vs. clamp-and-continue — `[D9]`
+
+Today a violation always raises `ModelPolicyError`, and the call — or, for
+`agentic_incident_memory_v2`, the entire DAG parse — fails closed. For some activities we may
+instead want the harness to **substitute a compliant model and continue** rather than stop the run
+outright: a misconfigured `model_id` shouldn't necessarily block an entire incident response if a
+safe fallback exists.
+
+This is a different mechanism from **"Downgrade is compliance, not evasion"** above, and the two
+should not be conflated: that paragraph describes the *caller* catching a raised error and retrying
+with a compliant model — routing selecting a legal option after a rejection. Clamp-and-continue is
+the *harness itself* substituting a model **without ever raising**, which needs a stronger
+guarantee than a caller's own retry, since there is no exception boundary forcing the substitution
+into view.
+
+**This is a real change in what "enforce, not route" means, and needs to be decided deliberately,
+not fallen into.** The line drawn earlier in this section — the harness caps, the launcher/router
+picks — is *why* the cap can't be reasoned around. Silently substituting a different model when a
+request violates the band means the harness itself is now making a routing decision. That's not
+disqualifying, but it must be an explicit, **opt-in posture per activity**, not a global behavior
+swap: `ActivityBand` gains an `on_violation: Literal["reject", "clamp"] = "reject"` field (name
+TBD), defaulting to today's behavior everywhere until an activity opts in.
+
+**Only the ceiling direction is in scope for now.** Clamping *down* to the highest tier still
+inside `max_tier` only ever **reduces** spend — consistent with the ceiling already being framed as
+a cost/blast-radius guarantee above, and safe to build first. Clamping *up* to satisfy a hard
+`min_tier` floor **increases** spend the caller never asked for and can interact badly with
+`CostGovernor`'s cumulative caps — deferred, not rejected; needs its own justification before it's
+built.
+
+**Non-negotiable: every clamp is a `harness_intervention` audit event, never a silent
+substitution.** An automatic downgrade that keeps an over-tier call from failing the run is
+strictly better than uncapped spend — but it is still the harness doing something other than what
+was asked, and that is exactly the kind of event the audit trail exists to surface, not hide. Two
+implementation details this forces:
+- `AuditLog.record_intervention()` defaults `decision="denied"`, which is wrong for a clamp (the
+  call *proceeded*, just on a different model) — the call site must pass an explicit `decision`
+  (e.g. `"allowed"`) alongside the intervention record, or the trail will misreport clamped calls
+  as rejected.
+- `Intervention.prevented` should name both models (e.g. `"clamped investigate_aws from
+  claude-sonnet-5 to claude-haiku-4-5"`), not just that a clamp happened, so
+  `demo_harness_report.py`'s existing per-component tally stays meaningful once `model_policy`
+  becomes one of the counted components.
+
+**Still open:** the exact `ActivityBand` field shape; whether `check()` gains a second method
+(e.g. `resolve()`, returning the possibly-substituted model) or the existing method grows a mode
+branch; and whether clamp-eligible activities need their own risk-tier ceiling (e.g. never offered
+for VERY HIGH-tier activities like `propose_code_fix`, only for LOW/MEDIUM). Not blocking current
+build — no caller needs this yet; captured here so the next concrete use case has a starting design
+instead of re-deriving it.
+
 ---
 
 ### Component 6 — Orchestration Controls
@@ -1101,6 +1187,7 @@ are **ours to make** at build time.
 | **D6** | **HITL timeout policy (per agent)** — fail-closed / fail-open / escalate. | Per-agent config, **not** the Component 8 mechanism | At each agent's config time. **Default fail-closed for HIGH+.** | Ours. *Per-agent, default exists.* |
 | **D7** | **Data-classification source & data-level access-control scope** — where the harness reads per-object sensitivity at runtime (dbt `manifest.json` / `catalog.json` `meta` vs. a dbt MCP surface), and how far data-object access control (J1) extends (schema / table / column). Client policy overrides the QBiz baseline taxonomy. | J1–J6 (data-sensitivity guardrails); sharpens `[D1]` | Before building data-level guardrails; consumer (`qbiz_dbt_startup_kit`) is waiting on it. See **Data Sensitivity Classification** above. | Team + ours. *New (2026-07-08); design in that kit's `docs/DATA_SENSITIVITY_PROPOSAL.md`.* |
 | **D8** | **Model-tier taxonomy + provider→tier map** — the concrete `WEAK/MID/FRONTIER` bands and which model IDs map to each (couples to `[D3]`: the provider list depends on whether we run Claude, Gemini, or both). Also: default soft vs. hard floor per risk tier. | Per-cohort model bands (Phase 7). **Not** the `model_policy.py` primitive (Phase 1), which is taxonomy-agnostic. | At Phase 7 config authoring. The primitive ships without it; bands can start conservative (everything MID) and tighten as benchmarking lands. | Ours, but *waits on `[D3]`'s provider answer* for the concrete map. *Safe default: everything MID until benchmarked.* |
+| **D9** | **Model-policy violation response** — hard reject (current, all activities) vs. an opt-in per-activity clamp-to-nearest-compliant-tier with mandatory audit-intervention logging. Ceiling-clamp (reduce spend) only in scope; floor-clamp (increase spend) deferred as higher-risk. | `ActivityBand`/`ModelPolicy.check()`'s API shape for any activity that wants clamp-and-continue. | Whenever a concrete use case needs continue-not-fail instead of DAG-parse failure; not blocking current build. | Ours. *Open — see Component (extension of 5) § "Violation response: reject vs. clamp-and-continue."* |
 
 **The two that actually pace us are D1 and D3** — both are team decisions and both are on the
 critical path to *client* work (not the demo, which can proceed without full LLM capability). D2
