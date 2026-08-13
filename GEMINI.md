@@ -8,6 +8,8 @@ You are working inside the Qbiz agents repository — the central source for all
 - `bundles/<name>/BUNDLE.md` — groups of skills installed together.
 - `mcp/mcp_<name>/mcp.yaml` — MCP server definitions.
 - `checks/` — global code review rules.
+- `personas/<Name>.md` — reusable role definitions (Architect, Engineer, Challenger) for design and
+  review work. Read `personas/AGENTS.md` before writing an ad hoc review persona from scratch.
 - `skills-manifest.json` — auto-generated index. Never edit manually.
 
 ## Rules when working in this repo
