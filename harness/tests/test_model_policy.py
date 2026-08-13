@@ -12,6 +12,7 @@ from qbiz_harness import (
     ActivityBand,
     AuditLog,
     CostGovernor,
+    EventType,
     ModelPolicy,
     ModelPolicyError,
     Tier,
@@ -127,7 +128,11 @@ def test_model_policy_exposes_no_public_mutator():
     `allowed_models(activity)` for the downgrade-retry path) is a one-line addition here, but
     anything else appearing on an enforcement primitive's public surface should fail loudly and
     put a human in the loop."""
-    KNOWN_READ_ONLY = {"check"}  # add here deliberately, with a note on why it's read-only
+    KNOWN_READ_ONLY = {
+        "check",
+        "allowed_models",  # added 2026-08-11 ([D9]): read-only, informs a caller-side
+        # downgrade-retry — the primitive still never substitutes or applies anything itself.
+    }
     policy = _policy(file_ticket=ActivityBand(max_tier=Tier.WEAK))
     public_attrs = {a for a in dir(policy) if not a.startswith("_")}
     assert public_attrs <= KNOWN_READ_ONLY
@@ -157,6 +162,76 @@ def test_construction_succeeds_when_evaluator_band_admits_two_or_more_models():
         review=ActivityBand(max_tier=Tier.MID, requires_multi_model=True)
     )  # claude-sonnet-5 and gemini-pro-2 both fit MID
     policy.check("review", "claude-sonnet-5")
+
+
+# --- allowed_models(): read-only accessor for the caller-side downgrade-retry pattern ---------
+
+
+def test_allowed_models_returns_only_models_within_the_ceiling():
+    policy = _policy(file_ticket=ActivityBand(max_tier=Tier.WEAK))
+    assert set(policy.allowed_models("file_ticket")) == {"claude-haiku-4", "gemini-flash-2"}
+
+
+def test_allowed_models_excludes_below_floor_when_floor_is_hard():
+    policy = _policy(
+        investigate=ActivityBand(max_tier=Tier.FRONTIER, min_tier=Tier.MID, floor_hard=True)
+    )
+    admitted = policy.allowed_models("investigate")
+    assert "claude-haiku-4" not in admitted  # WEAK, below the hard floor
+    assert "gemini-flash-2" not in admitted
+    assert set(admitted) == {"claude-sonnet-5", "gemini-pro-2", "claude-opus-5", "gemini-ultra-2"}
+
+
+def test_allowed_models_includes_below_floor_when_floor_is_soft():
+    policy = _policy(
+        investigate=ActivityBand(max_tier=Tier.FRONTIER, min_tier=Tier.MID, floor_hard=False)
+    )
+    # A soft floor doesn't restrict admission — matches check()'s own permissiveness for the
+    # same band, so allowed_models() never claims something check() would actually reject.
+    assert "claude-haiku-4" in policy.allowed_models("investigate")
+
+
+def test_allowed_models_sorted_strongest_tier_first():
+    policy = _policy(file_ticket=ActivityBand(max_tier=Tier.FRONTIER))
+    admitted = policy.allowed_models("file_ticket")
+    assert admitted[0] in {"claude-opus-5", "gemini-ultra-2"}  # FRONTIER models sort first
+
+
+def test_allowed_models_fails_closed_on_unmapped_activity():
+    policy = _policy(file_ticket=ActivityBand(max_tier=Tier.WEAK))
+    with pytest.raises(ModelPolicyError):
+        policy.allowed_models("some_activity_never_configured")
+
+
+def test_reference_wiring_ceiling_clamp_and_retry_is_caller_side():
+    """Reference implementation of the clamp-and-continue pattern (HARNESS_PLAN.md `[D9]`): the
+    primitive never substitutes a model itself — `allowed_models()` only informs the choice, and
+    `check()` still gates the retry, so a caller can't shortcut straight to "use whatever I want".
+    The substitution must still be recorded as a `harness_intervention` — but with `decision=
+    "allowed"`, since the call actually proceeded; `record_intervention()`'s `"denied"` default
+    would misreport a clamped-and-succeeded call as a rejected one."""
+    policy = _policy(file_ticket=ActivityBand(max_tier=Tier.WEAK))
+    audit = AuditLog()
+
+    requested_model = "claude-opus-5"  # over-tier for file_ticket
+    try:
+        policy.check("file_ticket", requested_model)
+        used_model = requested_model
+    except ModelPolicyError as exc:
+        used_model = policy.allowed_models("file_ticket")[0]  # strongest still-compliant model
+        policy.check("file_ticket", used_model)  # the substitute must itself pass
+        audit.record_intervention(
+            agent_id="test-agent",
+            action="call:file_ticket",
+            component="model_policy",
+            prevented=f"clamped file_ticket from {requested_model!r} to {used_model!r}: {exc}",
+            decision="allowed",
+        )
+
+    assert used_model == "claude-haiku-4"  # the only WEAK model in the fixture tier_map
+    assert len(audit.events) == 1
+    assert audit.events[0].decision == "allowed"
+    assert audit.events[0].event_type == EventType.HARNESS_INTERVENTION
 
 
 # --- ModelPolicyError is part of the HarnessError boundary -------------------------------------

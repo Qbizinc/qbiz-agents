@@ -75,6 +75,10 @@ class ModelPolicy:
 
     Mirrors `CostGovernor.pre_call`: the check fires before the API call it guards, so a
     rejected request never actually reaches the model.
+
+    Public surface is deliberately minimal: `check()` (reject) and `allowed_models()` (read-only,
+    for a caller that wants to retry with a compliant model instead of failing). Neither one lets
+    a caller widen the policy — see `test_model_policy_exposes_no_public_mutator`.
     """
 
     def __init__(
@@ -89,6 +93,18 @@ class ModelPolicy:
         self._bands = dict(activities)
         self._validate_evaluator_bands()
 
+    def _admitted_models(self, band: ActivityBand) -> list[str]:
+        """Every concrete model `band` allows: tier <= max_tier, and >= min_tier only when the
+        floor is hard — the same admission rule `check()` applies to a single model, generalized
+        to "every model that would pass". Shared by the construction-time evaluator validation
+        and the read-only `allowed_models()` accessor so both can never disagree about what's
+        actually admitted."""
+        return [
+            model
+            for model, tier in self._tier_of.items()
+            if tier <= band.max_tier and (not band.floor_hard or tier >= band.min_tier)
+        ]
+
     def _validate_evaluator_bands(self) -> None:
         """Config-time check: an activity marked `requires_multi_model` must admit more than one
         concrete model within its band, or the evaluator-different-model rule can never be
@@ -97,17 +113,28 @@ class ModelPolicy:
         for activity, band in self._bands.items():
             if not band.requires_multi_model:
                 continue
-            admitted = [
-                model
-                for model, tier in self._tier_of.items()
-                if tier <= band.max_tier and (not band.floor_hard or tier >= band.min_tier)
-            ]
+            admitted = self._admitted_models(band)
             if len(admitted) < 2:
                 raise ModelPolicyError(
                     f"activity {activity!r} requires a different-model evaluator, but its band "
                     f"(min={band.min_tier.name}, max={band.max_tier.name}) admits only "
                     f"{len(admitted)} mapped model(s): {admitted}"
                 )
+
+    def allowed_models(self, activity: str) -> list[str]:
+        """Every concrete model `activity`'s band admits, strongest tier first.
+
+        Read-only — this never substitutes or applies anything. It exists for the caller-side
+        "downgrade is compliance, not evasion" pattern (HARNESS_PLAN.md's Model-Tier Policy
+        section, `[D9]`): catch a `ModelPolicyError` from `check()`, call this to see what would
+        actually be admitted, pick one, and retry — the router still routes, the policy only ever
+        answers "what's allowed". Fails closed on an unmapped activity, same as `check()`.
+        """
+        band = self._bands.get(activity)
+        if band is None:
+            raise ModelPolicyError(f"No model band for activity {activity!r}; refusing")
+        admitted = self._admitted_models(band)
+        return sorted(admitted, key=lambda model: (-self._tier_of[model], model))
 
     def check(self, activity: str, model: str) -> None:
         """Raise `ModelPolicyError` if `model` is not allowed to run `activity`.
