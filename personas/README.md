@@ -16,21 +16,50 @@ this repo is the shared home for exactly this kind of reusable material. See the
   over-engineering harder than anyone else.
 - **[Challenger](Challenger.md)** — finds the alternative nobody listed; questions the framing;
   looks for how something can be broken, misused, or abused.
+- **[Editor](Editor.md)** — judges register and audience fit; catches hedging once a tone is picked;
+  asks whether this sounds like what it's trying to be, to whoever it's for.
+- **[Project Manager](Project-Manager.md)** — judges timing, failure shape, and whether something
+  reads as done; tracks threads that resolved, stalled, or got dropped without a trace.
+- **[QA](QA.md)** — checks coverage: is this true everywhere it should be, not just where someone
+  happened to look; a directed sweep, not exploratory.
+- **[Reviewer](Reviewer.md)** — the first-look read, deliberately carrying no standing context; says
+  what only shows up to someone seeing it cold.
+- **[Fact-Checker](Fact-Checker.md)** — checks a specific claim against its actual source; catches
+  self-contradiction and claims that sound right but aren't.
+- **[Product Manager](Product-Manager.md)** — gates work before it starts: does this need to exist,
+  is the goal stated plainly, do the requirements and the plan actually reach it.
+- **[Advocate](Advocate.md)** — speaks for whoever isn't in the room and for what a decision quietly
+  sets as precedent, with no authority of its own beyond naming it.
+- **[Researcher](Researcher.md)** — checks for reuse and precedent before anything new gets built;
+  reports sources and disagreement between them rather than picking quietly.
+- **[Scientist](Scientist.md)** — designs the measurement: freezes ground truth and the exit
+  condition before the run, and writes up a null result with the same weight as a win.
+- **[Auditor](Auditor.md)** — read-only check on whether a record asserts something it never
+  actually observed; flags, verified and severity-graded, never fixes.
+
+**Researcher, Scientist, and Auditor are provisional strip-downs** — no full persona exists yet for
+any of the three (see `Agents/Agents-Extended.md`), so these are the review-question layer built
+directly rather than stripped from an existing character. Useful for testing what each lens actually
+catches before committing to a full personality; a real persona built later still has to clear the
+conditions already on record for it (Scientist's three pre-registration sentences, Auditor queued
+behind her) regardless of how this stripped version performs.
 
 ## When to use
 
 - **Single persona** — adopt one voice for a task in character. E.g. have a subagent implement as
   Engineer, or review a plan as Architect.
-- **Three-role review** — assign each persona to a separate pass (separate subagents, or one agent
-  working through each in turn), with the Architect ruling on disagreement between Engineer and
-  Challenger. Reach for this on any nontrivial design decision or PR review instead of a single
-  undifferentiated pass.
+- **Reconciled multi-role review** — pick one role as Lead and one or more others as Drafters, based
+  on what the decision actually turns on, and have the Lead rule on disagreement between the
+  Drafters. Architect leading Engineer and Challenger (below) is the validated worked example, not
+  the only shape — a necessity-gating review is better led by Product Manager, for instance. Reach
+  for this on any nontrivial design decision or PR review instead of a single undifferentiated pass.
+  See [AGENTS.md](AGENTS.md) for the mechanics the pattern was validated against.
 
 ## How to use
 
 Read the relevant persona file(s) in full and adopt the stated behavior and boundaries — don't
-paraphrase or summarize them into a shorter prompt. All three share one rule that overrides
-everything else in their file: **role never overrides correctness.**
+paraphrase or summarize them into a shorter prompt. Every role shares one rule that overrides
+everything else in its file: **role never overrides correctness.**
 
 ## Worked example: the harness plan review (2026-08-06)
 
@@ -93,15 +122,28 @@ of it when a different situation calls for a different structure.
 spend, not a free action. Reach for it on a live planning document or a PR with genuine stakes —
 against something trivial, the same structure would mostly produce restated agreement.
 
+## Retrospectives and working material
+
+[findings/](findings/) records how the pattern actually performs on real work — what each run
+caught, what it missed, what it cost, and which rules should change as a result. **Write an entry
+after any substantive multi-role review**; the methodology only improves if outcomes get tracked,
+and the useful entries are the ones that name failures rather than successes.
+
+[artifacts/](artifacts/) keeps the working material each run produced — draft plans, reviewer
+output, transcribed source evidence — one subfolder per run. None of it is authoritative; it exists
+so the reasoning behind a decision survives, particularly the options that were verified and
+rejected. A plan records what was chosen; it rarely records what was ruled out and why.
+
+The worked example above (harness plan, 2026-08-06) predates both folders and is recorded here only.
+
 ## Adding a new role
 
-Architect, Engineer, and Challenger cover most review and work needs, but don't force a task into
-one of the three if it genuinely needs a different lens (e.g. a security-specific or
-data-correctness-specific reviewer). Add a new file rather than stretching an existing persona's
-job past what its name says.
+The current roster covers most review and work needs, but don't force a task into an existing role if
+it genuinely needs a different lens (e.g. a security-specific reviewer). Add a new file rather than
+stretching an existing persona's job past what its name says.
 
 Before adding one, check that it's not already covered — a new role should do a job none of the
-existing three do, not a narrower or overlapping version of one.
+existing roster does, not a narrower or overlapping version of one.
 
 Match the existing format:
 
