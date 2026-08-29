@@ -3,8 +3,36 @@
 *Design doc & build plan. Status: Phase 1 scaffold built (2026-07-09); reframed from a
 single-purpose pre-sales tool to an extensible discovery framework (2026-07-13); corrected
 `mcp_aws` merge status after the branch stack landed on `master`, and Phase 2 framework core
-built (2026-07-14) — the "Phase 1 delta" notes in the seams below are resolved history. Owner:
-David Sevier.*
+built (2026-07-14) — the "Phase 1 delta" notes in the seams below are resolved history.
+Recommendations prioritization designed and folded in (2026-08-07), **designed but not built**.
+Owner: David Sevier.*
+
+> ## ⚠ Review this plan before building against it
+>
+> **Nothing in the unbuilt sections below should be implemented until this document has had a
+> full review.** Two specific reasons, both earned:
+>
+> 1. **The unresolved open decisions are load-bearing, not cosmetic.** `[A3]` (rubric
+>    calibration) has been open since Phase 1 and now gates a second axis as well as the scores;
+>    `[A5]` must close before the first connected collector ships; `[A8]`–`[A15]` gate
+>    prioritization. Building against an open decision bakes a guess into code.
+> 2. **The prioritization design was drafted four times, and the third draft contained a
+>    disqualifying flaw that its author did not catch.** Two independent reviewers (Engineer and
+>    Challenger personas, `personas/`) found that v3's default configuration would have shipped
+>    ~900 lines to reproduce a plain severity sort, plus an arithmetic error in the band
+>    threshold. Both were verified before the redesign. **The current text is v4 and has not
+>    been reviewed by anyone.** The older sections of this plan have never had that treatment at
+>    all.
+>
+> Recommended: the three-role pattern in `personas/AGENTS.md` — Engineer and Challenger
+> independently and blind to each other, Architect reconciling — run against the whole document,
+> not only the newest section.
+>
+> The full derivation behind the prioritization section — all four drafts, both review rounds, and
+> the transcribed prior-art methodology — is preserved at
+> `personas/artifacts/assay-work-20260807/`. **Read the two round-2 reviews there before
+> reopening any of its design decisions**; they carry the verified arithmetic for why v3 was
+> abandoned and why an axis registry was cut, and re-deriving that is expensive.
 
 ---
 
@@ -283,6 +311,156 @@ incident-memory dogfooding surfaced: `rag search(tags=...)` is OR / any-of, not 
 each client's corpus by a *unique engagement tag alone* — a shared `assay` tag would bleed one
 client's documents into another's recall.
 
+## Recommendations prioritization
+
+*Designed 2026-08-07, **not built**. Gated on `[A8]`–`[A15]` and on the plan-wide review above.*
+
+Consultants have historically ranked engagement recommendations into P0–P3. Assay ships half of
+that today: the report groups findings by offering and ranks the groups by summed severity
+deduction — one axis, no bands. `ASSAY_PLAN` calls that section a proposal skeleton, and a
+skeleton with one axis cannot be sequenced or scoped. This section adds the second axis.
+
+### Axis sets
+
+Every recommendation gets two coordinates, and **which pair to use is a consultant call** that
+depends on the client and on what we were engaged to evaluate. Two ship:
+
+| Set | Y (derived) | X | Grain | Combination |
+| --- | --- | --- | --- | --- |
+| `urgent_strategic` *(default)* | Urgency — from severity | Strategic value — from the client-set dimension weight, overridable per row | recommendation | power-mean contour |
+| `impact_effort` | Impact — `severity_weight × dimension_weight` | Effort — band, human-supplied | workstream | quadrants |
+
+These are **two constants in code, not a config registry.** A registry was designed and cut: the
+derive functions are code either way, so "add your own axis set" was never a config-only move, and
+the two sets differ by a cost flag and two labels. What a profile retunes — shape, weights, band
+thresholds, effort defaults, default set — is flat config.
+
+### Where the human input goes
+
+**Strategic value is a property of a business theme, not of a task.** Asking a consultant to type a
+value on each of thirteen findings invents thirteen opinions where the client has one. So it is
+captured once, at dimension grain, via `rubric.dimensions[].weight` — a field the framework already
+parses, already merges, and already advertises as *the* Tier-0 client-tuning move. Each row's
+strategic coordinate is then derived, and a consultant may **override an individual row** in a
+workshop; the override is provenance-tagged.
+
+Because every row always has a derived value, there is no empty state — which matters more than it
+sounds. An earlier design left the axis unset by default and degraded to the derived axis, which
+made *leaving a field blank* score better than answering it honestly, and collapsed the whole output
+back onto severity.
+
+The client ranks in their own vocabulary via a challenge→dimension map (Tier-0 config), so the
+scoping conversation is about business themes rather than our rubric's internal ids:
+
+```yaml
+challenges:
+  data_confidence:      { dimensions: [data_quality, documentation] }
+  development_velocity: { dimensions: [operations] }
+  cost_efficiency:      { dimensions: [cost] }
+  security_risk:        { dimensions: [governance, ai_governance] }
+```
+
+### Provenance on every axis value
+
+Same discipline `EvidenceType` applies to findings, applied to coordinates. Findings are
+deterministic facts the narrator may explain but never alter; an axis value that a human or an agent
+supplied must say so, or model output launders into the facts column.
+
+```python
+class AxisSource(str, Enum):
+    DERIVED    = "derived"       # computed from findings + rubric
+    CONSULTANT = "consultant"    # typed by a human in the workshop
+    PROPOSED   = "proposed"      # agent-suggested, unreviewed — never auto-accepted
+    DEFAULT    = "default"       # config default (effort bands)
+    MEASURED   = "measured"      # RESERVED — no data path exists; see below
+```
+
+`MEASURED` is reserved and deliberately unimplemented: per-finding counts live interpolated inside
+title f-strings and in `CollectorResult.stats` under ad-hoc per-collector keys with no link back to
+the finding. Building that join would be exactly the framework bug this document's core design rule
+names. The member exists so stored matrices stay forward-compatible.
+
+### Combination — contours for value×value, quadrants for value×cost
+
+Normalize each axis against a **declared absolute maximum, never the observed set.** Set-relative
+normalization is unstable across re-runs and, worse, promotes the next-worst item as soon as a
+client fixes something. Absolute maxima are also what make scores comparable across engagements,
+which `[A8]` calibration needs.
+
+Two **value** axes combine by power mean, `score = (Σ wᵢ·xᵢ^p / Σ wᵢ)^(1/p)`:
+
+- `p = 1` → weighted sum → straight diagonal boundaries.
+- `p = 2.409` → exact crossover: a lone maximum on one axis reaches the P0 threshold unaided.
+- `p = 3.0` → shipped default. Mostly-flat-then-plunging contours, matching prior engagement
+  methodology.
+- `p → ∞` → `max()`, a square corner. Explicitly not the target shape.
+
+A **cost** axis does not get a contour. "Extreme on one axis is sufficient" is correct for two value
+axes and produces nonsense against a cost — a zero-impact trivial task outranking an important hard
+one. `impact_effort` therefore uses explicit quadrant thresholds with `impact / effort` ordering
+inside each quadrant.
+
+`priority_floor: {critical: P0}` is retained: redundant at the shipped shape, load-bearing under
+`weighted_sum` and in the `weight: 0` case, where a dimension override can zero a CRITICAL's derived
+coordinate.
+
+### Stable identity — a prerequisite, not a detail
+
+Overrides and workshop notes are hand-typed data that a re-run must never destroy, which requires
+ids stable across runs. Finding-derived ids are not: titles embed live counts, severities are
+computed from thresholds, the collector name is discarded when findings are flattened, and the
+natural composite key collides between two of the dbt collector's own findings.
+
+**This needs an explicit `key` field on `Finding`** — collector-authored, stable, unique per
+collector (`"dbt.test_coverage"`). One field, four collectors, their tests. There is no cheaper fix
+that survives a re-run, and it must land *before* anything else here, because everything joins on it.
+
+`sync` is correspondingly a merge and never an overwrite: four arms (unchanged / new / disappeared /
+changed-but-matched), a `status` field so a finding that vanished because the client *fixed* it is
+recorded rather than deleted, atomic write, and a drop-guard refusing to orphan more than N rows
+without `--force`. This is the highest-risk code in the feature; its merge tests are an explicit
+acceptance criterion.
+
+### Delivery
+
+Internal-only for now — a consultant may show the matrix to a client after cleaning it up, and a
+polished client-facing render is a later enhancement. That constraint is enforced by the renderer
+refusing to embed prioritization output unless explicitly flagged, rather than left as a promise;
+`[A4]` graduates read-only from principle to mechanism, and this should not hold itself to a lower
+bar.
+
+The edited artifact and the consumed artifact are the same YAML file. Re-banding is a first-class
+CLI path (`--weight`, `--shape`) because the prior-art methodology is explicit that axes get
+renegotiated with the client in the room — this is a facilitation instrument, not only a batch
+report generator.
+
+```
+qba assay prioritize init   <profile.yaml> [--axes impact_effort] --out items.yaml
+qba assay prioritize sync   <profile.yaml> items.yaml
+qba assay prioritize render items.yaml [--weight strategic=1.5] [--shape 4] --out matrix.md
+```
+
+The agentic half follows the `Narrator` seam exactly: an `AxisEstimator` Protocol with a zero-cost
+deterministic fallback, run under the harness at the same call site, `Tier.MID` ceiling via
+`model_policy`, output tagged `PROPOSED`, never overwriting a `CONSULTANT` value, and written as a
+proposal the consultant diffs rather than a direct write. Its best job is proposing **dimension
+weights** from the client's own written strategy — grounded in the documents the Phase 4
+document-evidence collector already plans to ingest. Six weights sourced from a client's own charter
+is citable; thirteen per-row guesses are not. Sequence it after that collector.
+
+**Related fix, shippable independently:** the roadmap ranks offering groups by summed severity
+deduction *without* dimension weight, while `overall_score` applies it. Invisible while every
+baseline weight is `1.0`, but a profile that reweights — the advertised Tier-0 move — makes the
+scorecard and the roadmap rank by different arithmetic in one document. Prioritization raises the
+stakes, since dimension weight now drives the strategic axis. Tracked as `[A11]`; it is a design
+question, not merely a bug, because offering groups span dimensions.
+
+**Sizing:** ~900–1200 lines including tests. Stated with its history: this was estimated at ~500–700
+and ~800–1000 in earlier drafts, and independently costed at roughly double the second figure. Treat
+900–1200 as a floor. If it proves over-built, the cheapest thing that could work is to render the
+grid and let the room place the items, with no computed priority at all — closer to the prior-art
+methodology than anything designed here, and roughly a fifth of the code.
+
 ## Build phases
 
 - **Phase 1 — scaffold (DONE 2026-07-09):** the pulse-tier pipeline end to end: three artifact
@@ -309,6 +487,24 @@ client's documents into another's recall.
   - **The extension documentation:** `docs/EXTENDING.md` + collector template + test scaffold.
   - **Acceptance test:** the cloud-posture worked example (or equivalent out-of-list
     domain) implemented at Tier-1 effort by following the docs alone.
+- **Phase 2.5 — recommendations prioritization (DESIGNED, NOT BUILT):** the second axis on the
+  roadmap, per [Recommendations prioritization](#recommendations-prioritization). Slots before
+  Phase 3 because nothing in it is blocked by connected collectors, and because it upgrades the
+  section that is already the commercial payload of the deliverable. **Gated on `[A8]`–`[A15]` and
+  on the plan-wide review — do not start against open decisions.** In dependency order:
+  - **`Finding.key`** — explicit collector-authored stable id, plus the four collectors and their
+    tests. Everything else joins on it; it lands first or not at all.
+  - Flat `prioritization:` config section, its merge block, and validators. Note the existing
+    override machinery is bespoke per-section, so this is a hand-written merge arm, not free reuse.
+  - `prioritize.py`: `Item`, `AxisSource`, the two `AxisSet` constants, power-mean and quadrant
+    combination, banding.
+  - `sync` with all four arms, `status`, atomic write, and drop-guard. Merge tests are an
+    acceptance criterion, not a nicety.
+  - Challenge→dimension map — Tier 0, config only.
+  - `qba assay prioritize init / sync / render`, including the workshop re-banding overrides.
+  - `AxisEstimator` Protocol + deterministic `DefaultEstimator` (no key, no `[D3]` dependency).
+  - The LLM estimator for dimension weights is **not** here — it belongs after Phase 4's
+    document-evidence collector, which is what makes its proposals citable.
 - **Phase 3 — depth via connected collectors:** the full-assessment tier's scanning half.
   Every bullet here starts with the [reuse check](#reuse-over-duplication-check-for-a-shared-tool-first)
   — named explicitly per item because this is the phase where it matters most:
@@ -367,6 +563,9 @@ client's documents into another's recall.
 
 ## Open decisions
 
+**`[A8]`–`[A15]` gate Phase 2.5 and must be closed before it is built.** They are not deferred
+polish: each one bakes a guess into code if built around rather than decided.
+
 - **[A1] Delivery form:** consultant-run CLI (current), client-runnable self-serve, or both?
   Self-serve is a lead magnet but exposes the rubric to gaming. The pulse/full split sharpens
   this: self-serve only ever makes sense for the pulse tier.
@@ -393,6 +592,40 @@ client's documents into another's recall.
   collector shouldn't be the first place that logic lives. Decide scope (which providers,
   usage API vs. billing export vs. both) and build `mcp/mcp_ai_billing/` — or confirm this
   is small enough to fold into an existing server — before Phase 3's AI Spend bullet starts.
+
+### Prioritization (Phase 2.5)
+
+- **[A8] Axis calibration.** Band thresholds, the contour shape, and effort band defaults are
+  uncalibrated guesses — `[A3]`'s problem on new axes, and it now affects a *ranking* handed to a
+  client rather than only a score. Absolute normalization is what makes cross-engagement
+  calibration possible later; the Phase 5 precedent corpus is the intended substrate for both.
+  Do not quote a priority ranking externally until this closes.
+- **[A10] Sync conflict policy.** When a re-run's derived strategic value contradicts a stored
+  `CONSULTANT` override: keep silently, keep and flag, or prompt? Proposed: keep and flag in the
+  render. Decide before `sync` is written — this is its semantics, not a detail layered on top.
+- **[A11] Roadmap ranking weight.** Should offering-group ranking apply dimension weight, given
+  that groups span dimensions? Genuinely a design question, not just the bug fix it resembles.
+  Consequential now that dimension weight drives the strategic axis: whichever way it goes, the
+  roadmap and the matrix must agree inside one document. Shippable independently of everything
+  else in Phase 2.5.
+- **[A13] Prior-art provenance.** The Urgent × Strategic methodology comes from a previous
+  engagement's slide. Its *curvature* is confirmed against the original; whether the methodology
+  was actually used, and whether it worked, is not. "Built for X" does not mean "used for X" —
+  ask whoever ran that engagement. Gates `default_axis_set` only, nothing else.
+- **[A14] A third axis set, `impact_confidence`.** Would be the only fully-derivable pair, and
+  provenance is a real differentiator — competitors claim an effort column; none can show where
+  a number came from. Cheap *only* if `EvidenceType` (three labels, no numbers) gets a value map.
+  Deferred, not rejected.
+- **[A15] Override granularity.** Strategic value is overridable per row. Should *urgency* be
+  too? Proposed: **no.** Severity is the deterministic spine of the assessment, and a
+  hand-editable severity is precisely where the "findings are facts, not opinions" property
+  breaks — the one property the tool is sold on.
+
+*(`[A9]` — HITL placement for estimate acceptance — resolved during design: a local CLI diff for
+v1. The harness's Component 8 is `async` while Assay is synchronous throughout, and no
+`ApprovalTransport` implementation exists in-repo; revisit when the output goes client-facing.
+`[A12]` — a warning when a workstream carries too many findings — was superseded when
+recommendation grain became the default.)*
 
 ## Presentation tie-in (internal deck, 2026-07)
 

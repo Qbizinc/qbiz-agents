@@ -17,3 +17,8 @@ terraform.tfstate.*
 terraform.tfvars
 !terraform.tfvars.example
 .varve/
+Scratchpad-*.md
+
+# Scratch workspace: draft plans, agent review output, working notes.
+# Nothing here is a deliverable — promote to the repo proper or delete it.
+tmp/
